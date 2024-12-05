@@ -118,20 +118,23 @@ class Twitch:
         return None
 
 
-def write_chat_file(chat_url):
-    # Create an instance of ChatDownloader
-    downloader = ChatDownloader()
-    no_chat_replay = []
-    try:
-        chats = downloader.get_chat(chat_url)
-        with open("1201chat.json", "w", encoding="utf-8") as f:
-            # # Loop through each message in the chat
-            for message in chats:
-                # Write the author name and message to the file
-                f.write(message)
-    except NoChatReplay as e:
-        no_chat_replay.append(chat_url)
-        print(no_chat_replay)
+class ChatDownload:
+    def __init__(self):
+        self.downloader = ChatDownloader()
+
+    def write_chat_csv_file(self, user_id: str, clip_urls: dict):
+        # Create an instance of ChatDownloader
+        no_chat_replay = []
+        user_id_dir = f"data/chats/{user_id}"
+        for chat_id, chat_url in clip_urls.items():
+            try:
+                chats = self.downloader.get_chat(chat_url)
+                os.makedirs(user_id_dir, exist_ok=True)
+                with open(f"{user_id_dir}/{chat_id}.json", "w", encoding="utf-8") as f:
+                    json.dump(list(chats), f, indent=4)
+            except NoChatReplay as e:
+                no_chat_replay.append(chat_url)
+        pd.DataFrame(data={"chat_url": no_chat_replay})
 
 
 def create_user_df(data: json):
@@ -221,29 +224,48 @@ twitch = Twitch()
 # user_df = pd.read_csv("data/user_df.csv")
 # broadcasters_id = user_df["twitch_user_id"]
 # twitch.process_clips(broadcasters_id)
-# twitch = Twitch()
 
 # Specify the directory path
 clip_directory = "data/clips"
 
-# Iterate over each item in the directory
-for file in os.listdir(clip_directory):
-    if "no_clips" not in file:
-        full_path = os.path.join(clip_directory, file)
-        df = pd.read_csv(full_path)
-        video_ids = get_unique_video_ids_from_df(df)
-        data = twitch.get_videos_by_ids(video_ids)
-        if data:
-            create_video_df(data, file.split(".")[0])
-        else:
-            with open("data/videos/user_has_no_video.txt", "a") as no_video_record:
-                no_video_record.write(f"{file}\n")
 
-# create_video_df
+def process_videos(twitch, clip_directory):
+    # Iterate over each item in the directory
+    for file in os.listdir(clip_directory):
+        if "no_clips" not in file:
+            full_path = os.path.join(clip_directory, file)
+            df = pd.read_csv(full_path)
+            video_ids = get_unique_video_ids_from_df(df)
+            data = twitch.get_videos_by_ids(video_ids)
+            if data:
+                create_video_df(data, file.split(".")[0])
+            else:
+                with open("data/videos/user_has_no_video.txt", "a") as no_video_record:
+                    no_video_record.write(f"{file}\n")
 
 
-# data = twitch.get_clip_info("494543675").get("data")
-# create_clip_df(data, "494543675test")
+# process_videos(twitch, clip_directory)
 
-# url = "https://www.twitch.tv/fanum/clip/HonorableOptimisticLeopardCoolStoryBro-i82vQOJdQgZ8-kHS"
-# write_chat_file(url)
+chatdownloader = ChatDownload()
+
+
+def process_chats(chatdownloader):
+    error_path = []
+    error_string = []
+    for file in os.listdir(clip_directory):
+        chats_dict = {}
+        if "no_clips" not in file:
+            full_path = os.path.join(clip_directory, file)
+            try:
+                df = pd.read_csv(full_path)
+            except Exception as e:
+                error_path.append(full_path)
+                error_string.append(e)
+                continue
+            result_dict = dict(zip(df["id"], df["url"]))
+            chatdownloader.write_chat_csv_file(file.split(".")[0], result_dict)
+    pd.DataFrame(data={"errop_path": error_path, "error_string": error_string})
+    print(result_dict)
+
+
+process_chats(chatdownloader)

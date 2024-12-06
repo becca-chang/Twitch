@@ -122,20 +122,20 @@ class ChatDownload:
     def __init__(self):
         self.downloader = ChatDownloader()
 
-    def write_chat_csv_file(self, user_id: str, clip_urls: dict):
+    def write_chat_csv_file(self, user_id: str, clip_urls: dict, chat_dir="data/chats"):
         # Create an instance of ChatDownloader
         no_chat_replay = []
-        user_id_dir = f"data/chats/{user_id}"
-        for chat_id, chat_url in clip_urls.items():
+        user_id_dir = f"{chat_dir}/{user_id}"
+        for clip_id, clip_url in clip_urls.items():
             try:
-                chats = self.downloader.get_chat(chat_url)
+                chats = self.downloader.get_chat(clip_url)
                 os.makedirs(user_id_dir, exist_ok=True)
-                with open(f"{user_id_dir}/{chat_id}.json", "w", encoding="utf-8") as f:
+                with open(f"{user_id_dir}/{clip_id}.json", "w", encoding="utf-8") as f:
                     json.dump(list(chats), f, ensure_ascii=False, indent=4)
             except NoChatReplay as e:
-                no_chat_replay.append(chat_url)
-        df = pd.DataFrame(data={"user_id": user_id, "chat_url": no_chat_replay})
-        df.to_csv("data/chats/no_chat_replay.csv")
+                no_chat_replay.append(clip_url)
+        df = pd.DataFrame(data={"clip_url": no_chat_replay})
+        df.to_csv(f"{chat_dir}/no_chat_replay_{user_id}.csv")
 
 
 def create_user_df(data: json):
@@ -250,15 +250,18 @@ def process_videos(twitch, clip_directory):
 chatdownloader = ChatDownload()
 
 
-def process_chats(chatdownloader):
+def process_chats(chatdownloader, clip_directory, exclude_files=[]):
     error_path = []
     error_string = []
     for file in os.listdir(clip_directory):
-        chats_dict = {}
-        if "no_clips" not in file:
+        if file.split(".")[0] in exclude_files:
+            continue
+        if ("no_clips" not in file) and ("read_csv_fail" not in file):
             full_path = os.path.join(clip_directory, file)
             try:
                 df = pd.read_csv(full_path)
+                if df.empty:
+                    raise "Empty df"
             except Exception as e:
                 error_path.append(full_path)
                 error_string.append(e)
@@ -271,8 +274,10 @@ def process_chats(chatdownloader):
     error_df.to_csv("data/clips/read_csv_fail.csv")
     # print(result_dict)
 
-
-# process_chats(chatdownloader)
+chat_dir="data/chats"
+existed_files = os.listdir(chat_dir)
+print(existed_files)
+# process_chats(chatdownloader, clip_directory, existed_files)
 chat_directory = "data/chats"
 
 
@@ -281,7 +286,7 @@ def chats_to_df(chat_directory):
     chat_empty_file = f"{chat_directory}/empty.csv"
     chat_error_file_path = []
     chat_error_message = []
-    empty = {
+    empty_dict = {
         "user_id": [],
         "file": [],
     }
@@ -301,8 +306,8 @@ def chats_to_df(chat_directory):
                 try:
                     df_chat = pd.read_json(chat_file)
                     if df_chat.empty:
-                        empty.get("user_id").append(user_id)
-                        empty.get("file").append(item_path)
+                        empty_dict.get("user_id").append(user_id)
+                        empty_dict.get("file").append(item_path)
                         continue
                     df_chat["author"]
                     # author
@@ -350,7 +355,7 @@ def chats_to_df(chat_directory):
         }
     )
     errors_df.to_csv(chat_error_file)
-    empty_df = pd.DataFrame(empty)
+    empty_df = pd.DataFrame(empty_dict)
     empty_df.to_csv(chat_empty_file)
 
 

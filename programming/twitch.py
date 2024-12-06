@@ -131,11 +131,11 @@ class ChatDownload:
                 chats = self.downloader.get_chat(chat_url)
                 os.makedirs(user_id_dir, exist_ok=True)
                 with open(f"{user_id_dir}/{chat_id}.json", "w", encoding="utf-8") as f:
-                    json.dump(list(chats), f, indent=4)
+                    json.dump(list(chats), f, ensure_ascii=False, indent=4)
             except NoChatReplay as e:
                 no_chat_replay.append(chat_url)
-        pd.DataFrame(data={"chat_url": no_chat_replay})
-
+        df = pd.DataFrame(data={"user_id": user_id, "chat_url": no_chat_replay})
+        df.to_csv("data/chats/no_chat_replay.csv")
 
 def create_user_df(data: json):
     df = pd.DataFrame(data=data["data"])
@@ -264,8 +264,9 @@ def process_chats(chatdownloader):
                 continue
             result_dict = dict(zip(df["id"], df["url"]))
             chatdownloader.write_chat_csv_file(file.split(".")[0], result_dict)
-    pd.DataFrame(data={"errop_path": error_path, "error_string": error_string})
-    print(result_dict)
+    error_df = pd.DataFrame(data={"errop_path": error_path, "error_string": error_string})
+    error_df.to_csv("data/clips/read_csv_fail.csv")
+    # print(result_dict)
 
 
 process_chats(chatdownloader)

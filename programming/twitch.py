@@ -6,6 +6,7 @@ import time
 import urllib.parse
 from chat_downloader import ChatDownloader
 from chat_downloader.errors import NoChatReplay
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -298,7 +299,9 @@ def chats_to_df(chat_directory):
             clips_id_list = []
             chats_file_path_list = []
             for file in os.listdir(item_path):  # "data/chats/<user_id>/<clip_id>"
-                chat_file = os.path.join(item_path, file) # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
+                chat_file = os.path.join(
+                    item_path, file
+                )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
                 try:
                     df_chat = pd.read_json(chat_file)
                     if df_chat.empty:
@@ -406,3 +409,102 @@ def make_up_missing_into_user_df(twitch, users):
 # df = pd.read_csv("data/clips/103314254.csv")
 # result_dict = dict(zip(df["id"], df["url"]))
 # chatdownloader.write_chat_csv_file("103314254", result_dict)
+
+
+def re_message(df, column, **kwargs):
+    df["subscribed_type"] = None
+    df["cheer"] = None
+    df["tier_level"] = None
+    df["subscribed_month"] = None
+    df["gifting_count"] = None
+    df["re_message_error"] = None
+    cheer_pattern = kwargs.get("cheer_pattern")
+    subscribed_pattern = kwargs.get("subscribed_pattern")
+    gifting_pattern = kwargs.get("gifting_pattern")
+    messages = list(df[column].astype(str))
+    for index, message in enumerate(messages):
+        try:
+            if re.match(cheer_pattern, message):  # 小奇點
+                df.loc[index, "subscribed_type"] = 3
+                df.loc[index, "cheer"] = re.match(cheer_pattern, message).group(1)
+            elif re.search(subscribed_pattern, message):  # 自己訂閱
+                df.loc[index, "subscribed_type"] = 1
+                df.loc[index, "tier_level"] = re.search(
+                    subscribed_pattern, message
+                ).group(1)
+                df.loc[index, "subscribed_month"] = re.search(
+                    subscribed_pattern, message
+                ).group(2)
+            elif re.search(gifting_pattern, message):  # 贈送訂閱
+                df.loc[index, "subscribed_type"] = 2
+                df.loc[index, "tier_level"] = re.search(gifting_pattern, message).group(
+                    1
+                )
+                df.loc[index, "gifting_count"] = re.search(
+                    gifting_pattern, message
+                ).group(2)
+            else:
+                df.loc[index, "subscribed_type"] = 0
+        except Exception as e:
+            df.loc[index, "re_message_error"] = e
+            continue
+    return df
+
+
+# Define the processing function
+def process_file(
+    file_full_path, output_directory, cheer_pattern, subscribed_pattern, gifting_pattern
+):
+    try:
+        # Read and process the file
+        df = pd.read_csv(file_full_path)
+        df_new = re_message(
+            df,
+            "message",
+            **{
+                "cheer_pattern": cheer_pattern,
+                "subscribed_pattern": subscribed_pattern,
+                "gifting_pattern": gifting_pattern,
+            },
+        )
+        # Save the processed file
+        output_path = os.path.join(output_directory, os.path.basename(file_full_path))
+        df_new.to_csv(output_path, index=False)
+        print(f"Processed: {file_full_path}")
+    except Exception as e:
+        print(f"Error processing {file_full_path}: {e}")
+
+
+# Prepare the output directory
+output_directory = os.path.join(chat_directory, "messaged_re")
+os.makedirs(output_directory, exist_ok=True)
+
+
+# Get the list of valid files
+def get_valid_files(chat_directory):
+    chat_directory_items = os.listdir(chat_directory)
+    valid_files = [
+        os.path.join(chat_directory, item)
+        for item in chat_directory_items
+        if os.path.isfile(os.path.join(chat_directory, item))
+        and item.split(".")[0].isdigit()
+    ]
+    return valid_files
+
+
+cheer_pattern = r"Cheer(\d+)(?:\s|$)"
+subscribed_pattern = r"subscribed at Tier (\d+).*?(\d+|\w+) month"
+gifting_pattern = r"gifting (\d+) Tier (\d+) Subs to (\w+)'s community"
+
+valid_files = get_valid_files(chat_directory)
+# Use ThreadPoolExecutor for threading
+with ThreadPoolExecutor(max_workers=200) as executor:
+    for file_path in valid_files:
+        executor.submit(
+            process_file,
+            file_path,
+            output_directory,
+            cheer_pattern,
+            subscribed_pattern,
+            gifting_pattern,
+        )

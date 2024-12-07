@@ -1,5 +1,3 @@
-import json
-import pandas as pd
 import re
 import whisper
 from typing import Optional
@@ -28,11 +26,6 @@ def make_url(url, repeated_param: str, parameters: list, page: Optional[int] = N
     return url
 
 
-def create_json_file(data, output):
-    with open(output, "w") as json_file:
-        json.dump(data, json_file, indent=4)
-
-
 def custom_sort(dict_list, sort_order):
     # Create a mapping of display_name to index in the sort_order list
     order_dict = {name: index for index, name in enumerate(sort_order)}
@@ -41,9 +34,3 @@ def custom_sort(dict_list, sort_order):
     return sorted(
         dict_list, key=lambda x: order_dict.get(x["display_name"], len(sort_order))
     )
-
-
-def read_file(file):
-    with open(file, "r") as file:  # Opens the file in read mode
-        content = json.load(file)
-    return content

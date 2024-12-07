@@ -436,11 +436,11 @@ def re_message(df, column, **kwargs):
             elif re.search(gifting_pattern, message):  # 贈送訂閱
                 df.loc[index, "subscribed_type"] = 2
                 df.loc[index, "tier_level"] = re.search(gifting_pattern, message).group(
-                    1
+                    2
                 )
                 df.loc[index, "gifting_count"] = re.search(
                     gifting_pattern, message
-                ).group(2)
+                ).group(1)
             else:
                 df.loc[index, "subscribed_type"] = 0
         except Exception as e:
@@ -509,21 +509,56 @@ gifting_pattern = r"gifting (\d+) Tier (\d+) Subs to (\w+)'s community"
 
 clip_directory = "data/clips"
 chat_directory = "data/chats"
+
+
 def get_clips_without_chats(clip_directory, chat_directory):
     user_clips = {}
     for file in os.listdir(clip_directory):
         user_id = file.split(".")[0]
         if ("no_clips" not in file) and (file.split(".")[0].isdigit()):
-            full_path = os.path.join(clip_directory, file) # user's clips
-            df = pd.read_csv(full_path) # user's clips
+            full_path = os.path.join(clip_directory, file)  # user's clips
+            df = pd.read_csv(full_path)  # user's clips
             clip_id_list = df["id"]
             user_clips[user_id] = clip_id_list
     for user, clip_id_list in user_clips.items():
         chats_download = f"{chat_directory}/{user}"
         if not os.path.exists(chats_download):
             lost_chat_clips = clip_id_list
-        else:    
-            lost_chat_clips = list(set(clip_id_list) - set([file.split(".")[0] for file in os.listdir(chats_download)]))
+        else:
+            lost_chat_clips = list(
+                set(clip_id_list)
+                - set([file.split(".")[0] for file in os.listdir(chats_download)])
+            )
         lost_chat_df = pd.DataFrame({"clip_id": lost_chat_clips})
         lost_chat_df.to_csv(f"{chat_directory}/{user}_clips_has_no_chat.csv")
-get_clips_without_chats(clip_directory, chat_directory)
+
+
+# get_clips_without_chats(clip_directory, chat_directory)
+
+
+def create_report(messaged_re_dir):
+    user_reports_list = []
+    for file in os.listdir(messaged_re_dir):
+        full_file_path = os.path.join(messaged_re_dir, file)
+        df = pd.read_csv(full_file_path, index_col=0)
+        user_id = file.split(".")[0]
+        message_count = df["message_id"].count()
+        distinct_clip_count = df["clip_id"].nunique()
+        subscribed_count = df[df["subscribed_type"] == 1]["tier_level"].count()
+        gifting_count = df[df["subscribed_type"] == 2]["gifting_count"].count()
+        gifting_amount = int(df[df["subscribed_type"] == 2]["gifting_count"].sum())
+        cheer_count = df[df["subscribed_type"] == 3]["message"].count()
+        cheer_amount = int(df[df["subscribed_type"] == 3]["cheer"].sum())
+        user_report = {
+            "user_id": user_id,
+            "message_count": message_count,
+            "distinct_clip_count": distinct_clip_count,
+            "subscribed_count": subscribed_count,
+            "gifting_count": gifting_count,
+            "gifting_amount": gifting_amount,
+            "cheer_count": cheer_count,
+            "cheer_amount": cheer_amount,
+        }
+        user_reports_list.append(user_report)
+    report_df = pd.DataFrame(data=user_reports_list)
+    report_df.to_csv("data/reports.csv")

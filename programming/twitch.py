@@ -298,7 +298,7 @@ def chats_to_df(chat_directory):
             time_in_seconds_list = []
             clips_id_list = []
             chats_file_path_list = []
-            for file in os.listdir(item_path):  # "data/chats/<user_id>/<clip_id>"
+            for file in os.listdir(item_path):  # "data/chats/<user_id>/<clip_id>.json"
                 chat_file = os.path.join(
                     item_path, file
                 )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
@@ -325,7 +325,7 @@ def chats_to_df(chat_directory):
                     time_in_seconds = df_chat["time_in_seconds"]
                     time_in_seconds_list.extend(time_in_seconds)
                     # clip id
-                    clip_id = [file for _ in range(len(df_chat))]
+                    clip_id = [file.split(".")[0] for _ in range(len(df_chat))]
                     clips_id_list.extend(clip_id)
                     # chat file path
                     chats_file = [chat_file for _ in range(len(df_chat))]
@@ -498,13 +498,13 @@ gifting_pattern = r"gifting (\d+) Tier (\d+) Subs to (\w+)'s community"
 
 valid_files = get_valid_files(chat_directory)
 # Use ThreadPoolExecutor for threading
-with ThreadPoolExecutor(max_workers=200) as executor:
-    for file_path in valid_files:
-        executor.submit(
-            process_file,
-            file_path,
-            output_directory,
-            cheer_pattern,
-            subscribed_pattern,
-            gifting_pattern,
-        )
+# with ThreadPoolExecutor(max_workers=200) as executor:
+#     for file_path in valid_files:
+#         executor.submit(
+#             process_file,
+#             file_path,
+#             output_directory,
+#             cheer_pattern,
+#             subscribed_pattern,
+#             gifting_pattern,
+#         )

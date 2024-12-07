@@ -135,9 +135,7 @@ class ChatDownload:
                 with open(f"{user_id_dir}/{clip_id}.json", "w", encoding="utf-8") as f:
                     json.dump(list(chats), f, ensure_ascii=False, indent=4)
             except NoChatReplay as e:
-                no_chat_replay.append(clip_url)
-        df = pd.DataFrame(data={"clip_id": no_chat_replay})
-        df.to_csv(f"data/chats/no_chat_replay_{user_id}.csv")
+                continue
 
 
 def create_user_df(data: json):

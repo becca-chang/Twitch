@@ -476,8 +476,8 @@ def process_file(
 
 
 # Prepare the output directory
-output_directory = os.path.join(chat_directory, "messaged_re")
-os.makedirs(output_directory, exist_ok=True)
+# output_directory = os.path.join(chat_directory, "messaged_re")
+# os.makedirs(output_directory, exist_ok=True)
 
 
 # Get the list of valid files
@@ -496,7 +496,7 @@ cheer_pattern = r"Cheer(\d+)(?:\s|$)"
 subscribed_pattern = r"subscribed at Tier (\d+).*?(\d+|\w+) month"
 gifting_pattern = r"gifting (\d+) Tier (\d+) Subs to (\w+)'s community"
 
-valid_files = get_valid_files(chat_directory)
+# valid_files = get_valid_files(chat_directory)
 # Use ThreadPoolExecutor for threading
 # with ThreadPoolExecutor(max_workers=200) as executor:
 #     for file_path in valid_files:
@@ -508,3 +508,24 @@ valid_files = get_valid_files(chat_directory)
 #             subscribed_pattern,
 #             gifting_pattern,
 #         )
+
+clip_directory = "data/clips"
+chat_directory = "data/chats"
+def get_clips_without_chats(clip_directory, chat_directory):
+    user_clips = {}
+    for file in os.listdir(clip_directory):
+        user_id = file.split(".")[0]
+        if ("no_clips" not in file) and (file.split(".")[0].isdigit()):
+            full_path = os.path.join(clip_directory, file) # user's clips
+            df = pd.read_csv(full_path) # user's clips
+            clip_id_list = df["id"]
+            user_clips[user_id] = clip_id_list
+    for user, clip_id_list in user_clips.items():
+        chats_download = f"{chat_directory}/{user}"
+        if not os.path.exists(chats_download):
+            lost_chat_clips = clip_id_list
+        else:    
+            lost_chat_clips = list(set(clip_id_list) - set([file.split(".")[0] for file in os.listdir(chats_download)]))
+        lost_chat_df = pd.DataFrame({"clip_id": lost_chat_clips})
+        lost_chat_df.to_csv(f"{chat_directory}/{user}_clips_has_no_chat.csv")
+get_clips_without_chats(clip_directory, chat_directory)

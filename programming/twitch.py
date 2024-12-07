@@ -1,5 +1,6 @@
-import pandas as pd
+import json
 import os
+import pandas as pd
 import requests
 import time
 import urllib.parse
@@ -126,16 +127,16 @@ class ChatDownload:
         # Create an instance of ChatDownloader
         no_chat_replay = []
         user_id_dir = f"data/chats/{user_id}"
-        for chat_id, chat_url in clip_urls.items():
+        for clip_id, clip_url in clip_urls.items():
             try:
-                chats = self.downloader.get_chat(chat_url)
+                chats = self.downloader.get_chat(clip_url)
                 os.makedirs(user_id_dir, exist_ok=True)
-                with open(f"{user_id_dir}/{chat_id}.json", "w", encoding="utf-8") as f:
+                with open(f"{user_id_dir}/{clip_id}.json", "w", encoding="utf-8") as f:
                     json.dump(list(chats), f, ensure_ascii=False, indent=4)
             except NoChatReplay as e:
-                no_chat_replay.append(chat_url)
-        df = pd.DataFrame(data={"user_id": user_id, "chat_url": no_chat_replay})
-        df.to_csv("data/chats/no_chat_replay.csv")
+                no_chat_replay.append(clip_url)
+        df = pd.DataFrame(data={"clip_id": no_chat_replay})
+        df.to_csv(f"data/chats/no_chat_replay_{user_id}.csv")
 
 
 def create_user_df(data: json):
@@ -277,8 +278,8 @@ chat_directory = "data/chats"
 
 
 def chats_to_df(chat_directory):
-    chat_error_file = f"{chat_directory}/errors.csv"
-    chat_empty_file = f"{chat_directory}/empty.csv"
+    chat_error_file = f"{chat_directory}/chats_to_df_errors.csv"
+    chat_empty_file = f"{chat_directory}/chats_to_df_empty.csv"
     chat_error_file_path = []
     chat_error_message = []
     empty = {
@@ -297,12 +298,12 @@ def chats_to_df(chat_directory):
             clips_id_list = []
             chats_file_path_list = []
             for file in os.listdir(item_path):  # "data/chats/<user_id>/<clip_id>"
-                chat_file = os.path.join(item_path, file)
+                chat_file = os.path.join(item_path, file) # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
                 try:
                     df_chat = pd.read_json(chat_file)
                     if df_chat.empty:
                         empty.get("user_id").append(user_id)
-                        empty.get("file").append(item_path)
+                        empty.get("file").append(chat_file)
                         continue
                     df_chat["author"]
                     # author
@@ -394,3 +395,14 @@ def make_up_missing_into_user_df(twitch, users):
 # make_up_missing_into_user_df(twitch, ["Tray"])
 # result = twitch.get_clip_info("103314254")
 # create_clip_df(result.get("data"), "103314254")
+# clip_103314254 = pd.read_csv("data/clips/103314254.csv")
+# video_ids = get_unique_video_ids_from_df(clip_103314254)
+# data = twitch.get_videos_by_ids(video_ids)
+# if data:
+#     create_video_df(data, "103314254")
+# else:
+#     with open("data/videos/user_has_no_video.txt", "a") as no_video_record:
+#         no_video_record.write(f"103314254\n")
+# df = pd.read_csv("data/clips/103314254.csv")
+# result_dict = dict(zip(df["id"], df["url"]))
+# chatdownloader.write_chat_csv_file("103314254", result_dict)

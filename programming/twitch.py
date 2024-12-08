@@ -88,7 +88,8 @@ class Twitch:
                 iteration = False
         return result
 
-    def process_clips(self, broadcasters_id):
+    def process_clips(self, broadcasters_id: list):
+        no_clip_df = pd.read_csv("data/clips/no_clips.csv", index_col=0)
         no_clip_broadcasters_id = []
         for broadcaster_id in broadcasters_id:
             data = self.get_clip_info(broadcaster_id).get("data")
@@ -96,8 +97,9 @@ class Twitch:
                 create_clip_df(data, broadcaster_id)
             else:
                 no_clip_broadcasters_id.append(broadcaster_id)
-        no_clip_df = pd.DataFrame(data={"broadcaster_id": no_clip_broadcasters_id})
-        no_clip_df.to_csv("data/clips/no_clips.csv")
+        df = pd.DataFrame(data={"broadcaster_id": no_clip_broadcasters_id})
+        concated_df = pd.concat([no_clip_df, df], ignore_index=True)
+        concated_df.to_csv("data/clips/no_clips.csv")
 
     def get_videos_by_ids(self, video_ids):
         total = len(video_ids)
@@ -206,7 +208,7 @@ def add_follower_count_into_existed_df(follower_dict, existed_df):
     existed_df.to_csv("data/user_df.csv")
 
 
-def get_unique_video_ids_from_df(df):
+def get_unique_video_ids_from_df(df) -> list:
     df_clean = df[df["video_id"].notna()]
     df_clean["video_id"] = df_clean["video_id"].astype(int, errors="ignore")
     videos = list(set(df_clean["video_id"]))
@@ -356,59 +358,97 @@ def chats_to_df(chat_directory):
     empty_df.to_csv(chat_empty_file)
 
 
+def chats_to_df_given_user(chat_directory, user: str):
+    chat_error_file = f"{chat_directory}/chats_to_df_errors.csv"
+    chat_empty_file = f"{chat_directory}/chats_to_df_empty.csv"
+    chat_error_df = pd.read_csv(chat_error_file, index_col=0)
+    chat_empty_df = pd.read_csv(chat_empty_file, index_col=0)
+    chat_error_file_path = []
+    chat_error_message = []
+    empty = {
+        "user_id": [],
+        "file": [],
+    }
+    user_dir = os.path.join(chat_directory, user)
+    if os.path.exists(user_dir):  # "data/chats/<user_id>"
+        user_id = user
+        author_id_list = []
+        messages_list = []
+        message_ids_list = []
+        time_texts_list = []
+        time_in_seconds_list = []
+        clips_id_list = []
+        chats_file_path_list = []
+        for file in os.listdir(user_dir):  # "data/chats/<user_id>/<clip_id>.json"
+            chat_file = os.path.join(
+                user_dir, file
+            )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
+            try:
+                df_chat = pd.read_json(chat_file)
+                if df_chat.empty:
+                    empty.get("user_id").append(user_id)
+                    empty.get("file").append(chat_file)
+                    continue
+                df_chat["author"]
+                # author
+                author_id = [i.get("id") for i in df_chat["author"]]
+                author_id_list.extend(author_id)
+                # message
+                messages = df_chat["message"]
+                messages_list.extend(messages)
+                # message_ids
+                message_ids = df_chat["message_id"]
+                message_ids_list.extend(message_ids)
+                # time_texts
+                time_texts = df_chat["time_text"]
+                time_texts_list.extend(time_texts)
+                # time_in_seconds
+                time_in_seconds = df_chat["time_in_seconds"]
+                time_in_seconds_list.extend(time_in_seconds)
+                # clip id
+                clip_id = [file.split(".")[0] for _ in range(len(df_chat))]
+                clips_id_list.extend(clip_id)
+                # chat file path
+                chats_file = [chat_file for _ in range(len(df_chat))]
+                chats_file_path_list.extend(chats_file)
+            except Exception as e:
+                chat_error_file_path.append(chat_file)
+                chat_error_message.append(e)
+            # chats_data.append(file_data)
+
+        user_all_chats = pd.DataFrame(
+            data={
+                "author_id": author_id_list,
+                "message": messages_list,
+                "message_id": message_ids_list,
+                "time_text": time_texts_list,
+                "time_in_seconds": time_in_seconds_list,
+                "clip_id": clips_id_list,
+                "chats_file_path": chats_file_path_list,
+            }
+        )
+        user_all_chats.to_csv(f"{chat_directory}/{user_id}.csv")
+
+        errors_df = pd.DataFrame(
+            {
+                "chat_error_file_path": chat_error_file_path,
+                "chat_error_message": chat_error_message,
+            }
+        )
+        empty_df = pd.DataFrame(empty)
+        errors_df = pd.concat([chat_error_df, errors_df], ignore_index=True)
+        errors_df.to_csv(chat_error_file)
+        empty_df = pd.concat([chat_empty_df, empty_df], ignore_index=True)
+        empty_df.to_csv(chat_empty_file)
+        return user_dir
+    else:  # dir not exists
+        return None
+
+
 # chats_to_df(chat_directory)
 
 
-# Make up data
-def make_up_missing_into_user_df(twitch, users):
-    user_df = pd.read_csv("data/user_df.csv")
-    r = twitch.get_users_by_names(users)
-    follower_count_list = []
-    twitch_user_id_list = []
-    display_name_list = []
-    broadcaster_type_list = []
-    created_at_list = []
-    description_list = []
-    for user in r.get("data"):
-        twitch_user_id = user["id"]
-        twitch_user_id_list.append(twitch_user_id)
-        display_name_list.append(user["display_name"])
-        broadcaster_type_list.append(user["broadcaster_type"])
-        created_at_list.append(user["created_at"])
-        description_list.append(user["description"])
-        follower_count_list.append(
-            twitch.get_broadcaster_follower_count(twitch_user_id)
-        )
-    new_df = pd.DataFrame(
-        {
-            "twitch_user_id": twitch_user_id_list,
-            "display_name": display_name_list,
-            "broadcaster_type": broadcaster_type_list,
-            "created_at": created_at_list,
-            "description": description_list,
-            "follower_count": follower_count_list,
-        }
-    )
-    concated_df = pd.concat([user_df, new_df], ignore_index=True)
-    concated_df.to_csv("data/make_up_missing_user.csv")
-
-
-# make_up_missing_into_user_df(twitch, ["Tray"])
-# result = twitch.get_clip_info("103314254")
-# create_clip_df(result.get("data"), "103314254")
-# clip_103314254 = pd.read_csv("data/clips/103314254.csv")
-# video_ids = get_unique_video_ids_from_df(clip_103314254)
-# data = twitch.get_videos_by_ids(video_ids)
-# if data:
-#     create_video_df(data, "103314254")
-# else:
-#     with open("data/videos/user_has_no_video.txt", "a") as no_video_record:
-#         no_video_record.write(f"103314254\n")
-# df = pd.read_csv("data/clips/103314254.csv")
-# result_dict = dict(zip(df["id"], df["url"]))
-# chatdownloader.write_chat_csv_file("103314254", result_dict)
-
-
+# Regular expression message
 def re_message(df, column, **kwargs):
     df["subscribed_type"] = None
     df["cheer"] = None
@@ -533,6 +573,29 @@ def get_clips_without_chats(clip_directory, chat_directory):
         lost_chat_df.to_csv(f"{chat_directory}/{user}_clips_has_no_chat.csv")
 
 
+def get_clips_without_chats_given_users(
+    clip_directory: str, chat_directory: str, given_users: list
+):
+    user_clips = {}
+    for user_id in given_users:
+        full_path = os.path.join(clip_directory, f"{user_id}.csv")  # user's clips
+        df = pd.read_csv(full_path)  # user's clips
+        clip_id_list = df["id"]
+        user_clips[user_id] = clip_id_list
+
+    for user, clip_id_list in user_clips.items():
+        chats_download = f"{chat_directory}/{user}"
+        if not os.path.exists(chats_download):
+            lost_chat_clips = clip_id_list
+        else:
+            lost_chat_clips = list(
+                set(clip_id_list)
+                - set([file.split(".")[0] for file in os.listdir(chats_download)])
+            )
+        lost_chat_df = pd.DataFrame({"clip_id": lost_chat_clips})
+        lost_chat_df.to_csv(f"{chat_directory}/{user}_clips_has_no_chat.csv")
+
+
 # get_clips_without_chats(clip_directory, chat_directory)
 
 
@@ -568,3 +631,94 @@ def create_report(messaged_re_dir):
 
 messaged_re_dir = "data/chats/messaged_re"
 create_report(messaged_re_dir)
+
+
+# Make up data
+def make_up_missing_into_user_df(twitch, users):
+
+    user_df = pd.read_csv("data/make_up_missing_user.csv", index_col=0)
+    r = twitch.get_users_by_names(users)
+    follower_count_list = []
+    twitch_user_id_list = []
+    display_name_list = []
+    broadcaster_type_list = []
+    created_at_list = []
+    description_list = []
+    for user in r.get("data"):
+        twitch_user_id = user["id"]
+        twitch_user_id_list.append(twitch_user_id)
+        display_name_list.append(user["display_name"])
+        broadcaster_type_list.append(user["broadcaster_type"])
+        created_at_list.append(user["created_at"])
+        description_list.append(user["description"])
+        follower_count_list.append(
+            twitch.get_broadcaster_follower_count(twitch_user_id)
+        )
+    new_df = pd.DataFrame(
+        {
+            "twitch_user_id": twitch_user_id_list,
+            "display_name": display_name_list,
+            "broadcaster_type": broadcaster_type_list,
+            "created_at": created_at_list,
+            "description": description_list,
+            "follower_count": follower_count_list,
+        }
+    )
+    concated_df = pd.concat([user_df, new_df], ignore_index=True)
+    concated_df.to_csv("data/make_up_missing_user.csv")
+
+
+# make_up_missing_into_user_df(
+#     twitch,
+#     ["officedrummer"],
+# )
+users_missing_clips = [
+    "59016177",
+    "61335991",
+    "82350088",
+    "801798086",
+    "496970086",
+    "481029760",
+]
+users_missing_clips = ["742288302"]
+# output_directory = os.path.join(chat_directory, "messaged_re")
+# twitch.process_clips(users_missing_clips)
+# users_no_clips = list(
+#     pd.read_csv("data/clips/no_clips.csv", index_col=0)["broadcaster_id"].astype(str)
+# )
+# users_still_missing_clips = []
+# for user_id in users_missing_clips:
+#     if user_id in users_no_clips:
+#         users_still_missing_clips.append(user_id)
+#     else:
+#         clip_df = pd.read_csv(f"data/clips/{user_id}.csv")
+#         video_ids = get_unique_video_ids_from_df(clip_df)
+#         data = twitch.get_videos_by_ids(video_ids)
+#         if data:
+#             create_video_df(data, user_id)
+#         else:
+#             with open("data/videos/user_has_no_video.txt", "a") as no_video_record:
+#                 no_video_record.write(f"\n{user_id}.csv")
+#         df = pd.read_csv(f"data/clips/{user_id}.csv")
+#         result_dict = dict(zip(df["id"], df["url"]))
+#         chatdownloader.write_chat_csv_file(user_id, result_dict)
+#         if chats_to_df_given_user(chat_directory, user_id):
+#             df = pd.read_csv(f"{chat_directory}/{user_id}.csv", index_col=0)
+#             df_new = re_message(
+#                 df,
+#                 "message",
+#                 **{
+#                     "cheer_pattern": cheer_pattern,
+#                     "subscribed_pattern": subscribed_pattern,
+#                     "gifting_pattern": gifting_pattern,
+#                 },
+#             )
+#             output_path = os.path.join(output_directory, f"{user_id}.csv")
+#             df_new.to_csv(output_path, index=False)
+
+# print(users_still_missing_clips)
+# get_clips_without_chats_given_users(
+#     clip_directory,
+#     chat_directory,
+#     list(set(users_missing_clips) - set(users_still_missing_clips)),
+# )

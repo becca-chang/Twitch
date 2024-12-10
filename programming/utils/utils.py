@@ -1,3 +1,4 @@
+import pandas as pd
 import re
 import whisper
 from typing import Optional
@@ -34,3 +35,16 @@ def custom_sort(dict_list, sort_order):
     return sorted(
         dict_list, key=lambda x: order_dict.get(x["display_name"], len(sort_order))
     )
+
+
+def concat_df_to_file(df_list: list, output_file: str):
+    concated_df = (
+        pd.concat(
+            df_list,
+            ignore_index=True,
+        )
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+    concated_df.to_csv(output_file)
+    return concated_df

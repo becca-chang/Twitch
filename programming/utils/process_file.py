@@ -1,4 +1,6 @@
 import json
+import os
+import pandas as pd
 
 
 def create_json_file(data, output):
@@ -6,10 +8,40 @@ def create_json_file(data, output):
         json.dump(data, json_file, indent=4)
 
 
-def read_file(file):
-    with open(file, "r") as file:  # Opens the file in read mode
-        content = json.load(file)
-    return content
+def read_or_create_csv_file(file_path, columns=[]) -> pd.DataFrame:
+
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        # If file does not exist, create an empty DataFrame and save it as CSV
+        df = pd.DataFrame(columns=columns)  # Specify your desired columns
+        df.to_csv(file_path, index=False)
+    else:
+        # If file exists, read the data
+        df = pd.read_csv(file_path, index_col=0)
+    return df
+
+
+def read_json_file(file_path) -> pd.DataFrame:
+
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        raise FileExistsError(f"The file '{file_path}' not exists.")
+    else:
+        # If file exists, read the data
+        df = pd.read_json(file_path)
+    return df
+
+
+# Get the list of valid files
+def get_files_with_digit_names(directory):
+    chat_directory_items = os.listdir(directory)
+    valid_files = [
+        os.path.join(directory, item)
+        for item in chat_directory_items
+        if os.path.isfile(os.path.join(directory, item))
+        and item.split(".")[0].isdigit()
+    ]
+    return valid_files
 
 
 def decode_and_save_json(input_file, output_file=None):

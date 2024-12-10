@@ -6,7 +6,7 @@ import time
 import urllib.parse
 from chat_downloader import ChatDownloader
 from chat_downloader.errors import NoChatReplay
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -87,31 +87,65 @@ class Twitch:
 
         return response.json().get("total", 0)
 
-    def get_clip_info(self, user: str, pagination=0, started_at=None):
+    def get_clip_info(
+        self,
+        user: str,
+        started_at: Optional[str] = None,
+    ):
+        """
+        Efficiently retrieve clip information with concurrent pagination
+
+        :param user: Twitch user ID
+        :param started_at: Start date for clips retrieval
+        :return: Dictionary of clip data
+        """
         if not started_at:
             started_at = f"{datetime.today().strftime('%Y-%m-%d')}T00:00:00Z"
+
         url = "https://api.twitch.tv/helix/clips"
         result = {"data": []}
-        payload = {
-            "broadcaster_id": user,
-            "started_at": started_at,
-        }
-        iteration = True
-        while iteration:
-            if pagination:
-                payload["after"] = pagination
-            response = requests.request(
-                "GET", url, headers=TWITCH_HEADERS, params=payload
-            )
-            r_data = response.json()
-            pagination = r_data.get("pagination").get("cursor")
-            result["data"].extend(r_data.get("data", []))
-            if not pagination:
-                iteration = False
+        pagination = None
+
+        def fetch_clips_page(payload):
+            """Internal method to fetch a single page of clips"""
+            try:
+                response = requests.get(
+                    url, headers=TWITCH_HEADERS, params=payload, timeout=10
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as e:
+                print(f"Error fetching clips: {e}")
+                return {"data": [], "pagination": {}}
+
+        with ThreadPoolExecutor(max_workers=200) as executor:
+            while True:
+                # Prepare payload
+                payload = {
+                    "broadcaster_id": user,
+                    "started_at": started_at,
+                }
+                if pagination:
+                    payload["after"] = pagination
+
+                # Execute request with rate limiting
+                time.sleep(0.2)
+                future = executor.submit(fetch_clips_page, payload)
+                r_data = future.result()
+
+                # Process retrieved data
+                clips = r_data.get("data", [])
+                result["data"].extend(clips)
+
+                # Check pagination and clip limit
+                pagination = r_data.get("pagination", {}).get("cursor")
+                if not pagination:
+                    break
+
         return result
 
     def summary_user_clips_to_csv(self, user: str):
-        data = self.get_clip_info(user).get("data")
+        data = self.get_clip_info(user, started_at="2024-10-01T00:00:00Z").get("data")
         if data:
             clip_summary = pd.DataFrame(data=data)
             clip_summary.drop(
@@ -152,28 +186,42 @@ class ChatDownload:
     def download_and_save_chats_from_clips(
         self, user_id, output_directory: str, clip_urls: dict[str, str]
     ):
-        # Create an instance of ChatDownloader
+        os.makedirs(output_directory, exist_ok=True)
         clip_id_without_chat_replay = []
         clip_url_without_chat_replay = []
-        os.makedirs(output_directory, exist_ok=True)
+
         file_names_without_extension = [
             os.path.splitext(file)[0]
             for file in os.listdir(output_directory)
             if os.path.isfile(os.path.join(output_directory, file))
         ]
-        for clip_id, clip_url in clip_urls.items():
+
+        def process_clip(clip_id, clip_url):
             if clip_id in file_names_without_extension:
-                continue
+                return None
             try:
                 chats = self.downloader.get_chat(clip_url)
                 with open(
                     f"{output_directory}/{clip_id}.json", "w", encoding="utf-8"
                 ) as f:
                     json.dump(list(chats), f, ensure_ascii=False, indent=4)
-            except NoChatReplay as e:
-                clip_id_without_chat_replay.append(clip_id)
-                clip_url_without_chat_replay.append(clip_url)
-                continue
+            except NoChatReplay:
+                return (clip_id, clip_url)
+            return None
+
+        # Using ThreadPoolExecutor to process clips in parallel
+        with ThreadPoolExecutor() as executor:
+            future_to_clip = {
+                executor.submit(process_clip, clip_id, clip_url): clip_id
+                for clip_id, clip_url in clip_urls.items()
+            }
+
+            for future in as_completed(future_to_clip):
+                result = future.result()
+                if result:
+                    clip_id_without_chat_replay.append(result[0])
+                    clip_url_without_chat_replay.append(result[1])
+
         df = pd.DataFrame(
             {
                 "clip_id": clip_id_without_chat_replay,
@@ -406,18 +454,6 @@ def re_message(chat_df, column="message", **kwargs):
 #     except Exception as e:
 #         print(f"Error processing {file_full_path}: {e}")
 
-# Use ThreadPoolExecutor for threading
-# with ThreadPoolExecutor(max_workers=200) as executor:
-#     for file_path in valid_files:
-#         executor.submit(
-#             process_file,
-#             file_path,
-#             output_directory,
-#             cheer_pattern,
-#             subscribed_pattern,
-#             gifting_pattern,
-#         )
-
 
 def get_user_clips_without_chats(
     user_id: str, clip_directory: str, chat_directory: str
@@ -503,7 +539,7 @@ if __name__ == "__main__":
         user_without_clip_file, columns=["user_id"]
     )
 
-    for user_id in user_info_df["twitch_user_id"][2:3]:
+    for user_id in user_info_df["twitch_user_id"]:
         follower_count = twitch.get_user_follower_count(user_id)
         user_info_df.loc[
             user_info_df["twitch_user_id"] == user_id, "follower_count"

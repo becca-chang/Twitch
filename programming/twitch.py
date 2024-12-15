@@ -43,7 +43,7 @@ class TwitchMetric:
             streamer_names = pd.read_csv(file_path)["Name"]
         else:
             streamer_names = []
-            for page in [1, 2, 3, 4]:
+            for page in [1, 2, 3, 4, 5, 6]:
                 url_path = f"https://www.twitchmetrics.net/channels/viewership?game={urllib.parse.quote(category)}&lang=en&page={page}"
                 self.driver.get(url_path)
                 time.sleep(2)
@@ -60,6 +60,9 @@ class TwitchMetric:
 
 
 class Twitch:
+    def __init__(self, started_at: Optional[str]=None, ended_at: Optional[str]=None):
+        self.started_at = started_at
+        self.ended_at = ended_at
 
     def get_users_by_names(self, names: list):
         missing_user_file = f"{DATA_ROOT}/missing_users.csv"
@@ -88,8 +91,8 @@ class Twitch:
     def get_clip_info(
         self,
         user: str,
-        started_at: Optional[str] = None,
-        ended_at: Optional[str] = None,
+        started_at: Optional[str]=None,
+        ended_at: Optional[str]=None,
     ):
         """
         Efficiently retrieve clip information with concurrent pagination
@@ -153,7 +156,7 @@ class Twitch:
     def summary_user_clips_to_csv(self, user: str):
         file_path = f"{CLIP_DIRECTORY}/{user}.csv"
         summary_clips = read_or_create_csv_file(file_path)
-        data = self.get_clip_info(user, started_at="2024-12-10T00:00:00Z").get("data")
+        data = self.get_clip_info(user, started_at=self.started_at, ended_at=self.ended_at).get("data")
         if data:
             clip_summary = pd.DataFrame(data=data)
             clip_summary.drop(
@@ -525,7 +528,14 @@ if __name__ == "__main__":
     category = "Just Chatting"
     streamer_names = twitch_metric.get_top_streamers_by_cat(category)
     twitch_metric.quit()
-    twitch = Twitch()
+    twitch = Twitch(started_at="2024-01-01T00:00:00Z", ended_at="2025-01-01T00:00:00Z")
+    retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
+    # Open the file in write mode
+    with open(retrieve_data_record, "a") as file:
+        # Write some content to the file
+        file.write(f"started_at: {twitch.started_at}\n")
+        file.write(f"ended_at: {twitch.ended_at}\n")
+
     user_index_start, user_index_end = 0, 100
     user_info_list = []
     user_info, missing_user = twitch.get_users_by_names(

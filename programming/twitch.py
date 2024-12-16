@@ -28,6 +28,14 @@ CHEER_PATTERN = r"Cheer(\d+)(?:\s|$)"
 SUBSCRIBED_PATTERN = r"subscribed at Tier (\d+).*?(\d+|\w+) month"
 GIFTING_PATTERN = r"gifting (\d+) Tier (\d+) Subs to (\w+)'s community"
 
+CHAT_ERROR_LOG = f"{DATA_ROOT}/chat_error.log"
+CHAT_TO_CSV_ERROR_LOG = f"{CHAT_DIRECTORY}/chats_to_df_errors.csv"
+CHAT_IS_EMPTY_LOG = f"{CHAT_DIRECTORY}/chats_to_df_empty.csv"
+CHAT_TO_CSV_ERROR_LOG_COLUMNS = ["datetime", "user_id", "file_path", "message"]
+CHAT_IS_EMPTY_LOG_COLUMNS = ["datetime", "user_id", "file_path"]
+RE_MESSAGE_LOG = f"{CHAT_DIRECTORY}/re_message.log"
+FETCH_CLIPS_LOG = f"{CLIP_DIRECTORY}/fetch_data.log"
+
 
 class TwitchMetric:
     def __init__(self):
@@ -43,6 +51,7 @@ class TwitchMetric:
             streamer_names = pd.read_csv(file_path)["Name"]
         else:
             streamer_names = []
+            rank_list = []
             for page in [1, 2, 3, 4, 5, 6]:
                 url_path = f"https://www.twitchmetrics.net/channels/viewership?game={urllib.parse.quote(category)}&lang=en&page={page}"
                 self.driver.get(url_path)
@@ -50,17 +59,21 @@ class TwitchMetric:
                 streamers = self.driver.find_elements(
                     By.CSS_SELECTOR, ".list-group-item h5.mb-0"
                 )
-
-                for element in streamers:
-                    streamer_names.append(element.text)
-
-            df = pd.DataFrame(data={"Name": streamer_names})
-            df.to_csv(file_path)
+                ranks = self.driver.find_elements(
+                    By.CSS_SELECTOR, ".list-group-item span.text-muted"
+                )
+                for rank, streamer in enumerate(ranks, streamers):
+                    streamer_names.append(streamer.text)
+                    rank_list.append(rank.text)
+            df = pd.DataFrame(data={"rank": rank_list, "Name": streamer_names})
+            df.to_csv(file_path, index=False)
         return streamer_names
 
 
 class Twitch:
-    def __init__(self, started_at: Optional[str]=None, ended_at: Optional[str]=None):
+    def __init__(
+        self, started_at: Optional[str] = None, ended_at: Optional[str] = None
+    ):
         self.started_at = started_at
         self.ended_at = ended_at
 
@@ -91,8 +104,8 @@ class Twitch:
     def get_clip_info(
         self,
         user: str,
-        started_at: Optional[str]=None,
-        ended_at: Optional[str]=None,
+        started_at: Optional[str] = None,
+        ended_at: Optional[str] = None,
     ):
         """
         Efficiently retrieve clip information with concurrent pagination
@@ -123,7 +136,7 @@ class Twitch:
                 response.raise_for_status()
                 return response.json()
             except requests.RequestException as e:
-                print(f"Error fetching clips: {e}")
+                write_log(FETCH_CLIPS_LOG, f"Error fetching clips: {e}")
                 return {"data": [], "pagination": {}}
 
         with ThreadPoolExecutor(max_workers=200) as executor:
@@ -156,7 +169,9 @@ class Twitch:
     def summary_user_clips_to_csv(self, user: str):
         file_path = f"{CLIP_DIRECTORY}/{user}.csv"
         summary_clips = read_or_create_csv_file(file_path)
-        data = self.get_clip_info(user, started_at=self.started_at, ended_at=self.ended_at).get("data")
+        data = self.get_clip_info(
+            user, started_at=self.started_at, ended_at=self.ended_at
+        ).get("data")
         if data:
             clip_summary = pd.DataFrame(data=data)
             clip_summary.drop(
@@ -218,6 +233,11 @@ class ChatDownload:
                     json.dump(list(chats), f, ensure_ascii=False, indent=4)
             except NoChatReplay:
                 return (clip_id, clip_url)
+            except Exception as e:
+                exception_message = (
+                    f"process_clip({clip_id},{clip_url}). Exception: {e}"
+                )
+                write_log(CHAT_ERROR_LOG, exception_message)
             return None
 
         # Using ThreadPoolExecutor to process clips in parallel
@@ -298,8 +318,8 @@ chatdownloader = ChatDownload()
 def export_single_user_chats_to_csv(
     user_id: str,
     chat_directory=CHAT_DIRECTORY,
-    chat_error_file_columns=["file_path", "message"],
-    chat_empty_file_columns=["user_id", "file_path"],
+    chat_error_file_columns=CHAT_TO_CSV_ERROR_LOG_COLUMNS,
+    chat_empty_file_columns=CHAT_IS_EMPTY_LOG_COLUMNS,
 ) -> str:
     """
     1. Read user's all chats file(.json) in "<chat_directory>/<user_id>".
@@ -307,26 +327,29 @@ def export_single_user_chats_to_csv(
     Args:
         user (str): user id
         chat_directory (str): chat directory. Defaults to "data/chats".
-        chat_error_file_columns (list, optional): Defaults to ["file_path", "message"].
-        chat_empty_file_columns (list, optional): Defaults to ["user_id", "file_path"].
+        chat_error_file_columns (list, optional):
+            Defaults to ["datetime", "user_id", "file_path", "message"].
+        chat_empty_file_columns (list, optional):
+            Defaults to ["datetime", "user_id", "file_path"].
 
     Returns:
         df: chat file
     """
-    chat_error_file = f"{chat_directory}/chats_to_df_errors.csv"
-    chat_empty_file = f"{chat_directory}/chats_to_df_empty.csv"
+
     chat_error_df = read_or_create_csv_file(
-        chat_error_file, columns=chat_error_file_columns
+        CHAT_TO_CSV_ERROR_LOG, columns=chat_error_file_columns
     )
     chat_empty_df = read_or_create_csv_file(
-        chat_empty_file, columns=chat_empty_file_columns
+        CHAT_IS_EMPTY_LOG, columns=chat_empty_file_columns
     )
+    # record error log
+    chat_error_datetime = []
+    chat_error_user = []
     chat_error_file_path = []
     chat_error_message = []
-    empty = dict(zip(chat_empty_file_columns, [[], []]))
+    empty = dict(zip(chat_empty_file_columns, [[], [], []]))
     user_chat_dir = os.path.join(chat_directory, user_id)
     if os.path.exists(user_chat_dir):  # "data/chats/<user_id>"
-        user_id = user_id
         author_id_list = []
         messages_list = []
         message_ids_list = []
@@ -341,8 +364,11 @@ def export_single_user_chats_to_csv(
                 )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
                 df_chat = read_json_file(chat_file)
                 if df_chat.empty:
-                    empty.get(chat_empty_file_columns[0]).append(user_id)
-                    empty.get(chat_empty_file_columns[1]).append(chat_file)
+                    empty.get(chat_empty_file_columns[0]).append(
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                    empty.get(chat_empty_file_columns[1]).append(user_id)
+                    empty.get(chat_empty_file_columns[2]).append(chat_file)
                     continue
                 df_chat["author"]
                 # author
@@ -367,6 +393,8 @@ def export_single_user_chats_to_csv(
                 chats_file = [chat_file for _ in range(len(df_chat))]
                 chats_file_path_list.extend(chats_file)
             except Exception as e:
+                chat_error_datetime.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                chat_error_user.append(user_id)
                 chat_error_file_path.append(chat_file)
                 chat_error_message.append(e)
             # chats_data.append(file_data)
@@ -385,16 +413,23 @@ def export_single_user_chats_to_csv(
         user_all_chats.to_csv(f"{chat_directory}/{user_id}.csv")
 
         errors_df = pd.DataFrame(
-            {
-                "chat_error_file_path": chat_error_file_path,
-                "chat_error_message": chat_error_message,
-            }
+            dict(
+                zip(
+                    chat_error_file_columns,
+                    [
+                        chat_error_datetime,
+                        chat_error_user,
+                        chat_error_file_path,
+                        chat_error_message,
+                    ],
+                )
+            )
         )
         empty_df = pd.DataFrame(empty)
         errors_df = pd.concat([chat_error_df, errors_df], ignore_index=True)
-        errors_df.to_csv(chat_error_file)
+        errors_df.to_csv(CHAT_TO_CSV_ERROR_LOG)
         empty_df = pd.concat([chat_empty_df, empty_df], ignore_index=True)
-        empty_df.to_csv(chat_empty_file)
+        empty_df.to_csv(CHAT_IS_EMPTY_LOG)
         return user_all_chats
     else:  # dir not exists
         return None
@@ -436,7 +471,10 @@ def re_message(chat_df, column="message", **kwargs):
             else:
                 chat_df.loc[index, "subscribed_type"] = 0
         except Exception as e:
-            chat_df.loc[index, "re_message_error"] = e
+            exception_message = f"""re_message(chat_df_index: {index}, chats_file_path: {chat_df['chats_file_path']}). Exception: {e}
+            """
+            write_log(RE_MESSAGE_LOG, exception_message)
+            # chat_df.loc[index, "re_message_error"] = e
             continue
     return chat_df
 

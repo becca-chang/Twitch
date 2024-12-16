@@ -1,6 +1,8 @@
 import pandas as pd
 import re
+import traceback
 import whisper
+from datetime import datetime
 from typing import Optional
 
 
@@ -48,3 +50,11 @@ def concat_df_to_file(df_list: list, output_file: str):
     )
     concated_df.to_csv(output_file)
     return concated_df
+
+
+def write_log(file, exception_message):
+    with open(file, "a") as log_file:
+        # Write some content to the file
+        log_file.write(f"{datetime.now()}: {exception_message}\n")
+        traceback.print_exc(file=log_file)
+        log_file.write("\n")

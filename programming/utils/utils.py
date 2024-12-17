@@ -39,13 +39,13 @@ def custom_sort(dict_list, sort_order):
     )
 
 
-def concat_df_to_file(df_list: list, output_file: str):
+def concat_df_to_file(df_list: list, output_file: str, subset=None):
     concated_df = (
         pd.concat(
             df_list,
             ignore_index=True,
         )
-        .drop_duplicates()
+        .drop_duplicates(subset=subset)
         .reset_index(drop=True)
     )
     concated_df.to_csv(output_file)

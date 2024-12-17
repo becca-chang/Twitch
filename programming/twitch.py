@@ -195,7 +195,7 @@ class Twitch:
                 inplace=True,
             )
             clip_summary.rename(columns={"id": "clip_id"}, inplace=True)
-            concat_df_to_file([summary_clips, clip_summary], file_path)
+            concat_df_to_file([summary_clips, clip_summary], file_path, subset="clip_id")
             return clip_summary
         return pd.DataFrame()
 
@@ -274,7 +274,7 @@ class ChatDownload:
                 "clip_url": clip_url_without_chat_replay,
             }
         )
-        df.to_csv(f"{CHAT_DIRECTORY}/{user_id}_clips_without_chat.csv")
+        df.to_csv(f"{CHAT_DIRECTORY}/{user_id}_clips_without_chat.csv", index=False)
 
 
 def get_unique_values_from_df_column(df, column):
@@ -303,7 +303,7 @@ def create_users_info_file(data: list, user_info_file_path: str):
         on="login",
     )
     merged_df["twitch_user_id"] = merged_df["twitch_user_id"].astype(str)
-    merged_df.to_csv(user_info_file_path)
+    merged_df.to_csv(user_info_file_path, index=False)
     return merged_df
 
 
@@ -328,7 +328,7 @@ def user_videos_to_csv(video_info_list: list, user_id: str):
         axis=1,
         inplace=True,
     )
-    df.to_csv(f"{VIDEO_DIRECTORY}/{user_id}.csv")
+    df.to_csv(f"{VIDEO_DIRECTORY}/{user_id}.csv", index=False)
     return df
 
 
@@ -447,9 +447,9 @@ def export_single_user_chats_to_csv(
         )
         empty_df = pd.DataFrame(empty)
         errors_df = pd.concat([chat_error_df, errors_df], ignore_index=True)
-        errors_df.to_csv(CHAT_TO_CSV_ERROR_LOG)
+        errors_df.to_csv(CHAT_TO_CSV_ERROR_LOG, index=False)
         empty_df = pd.concat([chat_empty_df, empty_df], ignore_index=True)
-        empty_df.to_csv(CHAT_IS_EMPTY_LOG)
+        empty_df.to_csv(CHAT_IS_EMPTY_LOG, index=False)
         return user_all_chats
     else:  # dir not exists
         return None
@@ -544,7 +544,7 @@ def get_user_clips_without_chats(
         )
     lost_chat_df = pd.DataFrame({"clip_id": lost_chat_clips})
     lost_chat_df.to_csv(
-        f"{chat_directory}/{user_id}_clips_without_chat_double_check.csv"
+        f"{chat_directory}/{user_id}_clips_without_chat_double_check.csv", index=False
     )
 
 
@@ -586,13 +586,14 @@ if __name__ == "__main__":
     category = "Just Chatting"
     streamer_names = twitch_metric.get_top_streamers_by_cat(category)
     twitch_metric.quit()
-    twitch = Twitch(started_at="2024-12-01T00:00:00Z", ended_at="2025-01-01T00:00:00Z")
+    twitch = Twitch(started_at="2024-12-01T00:00:00Z", ended_at="2024-12-18T00:00:00Z")
     retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
     # Open the file in write mode
     with open(retrieve_data_record, "a") as file:
         # Write some content to the file
+        file.write(f"retrieve_data_time: {datetime.now()}\n")
         file.write(f"started_at: {twitch.started_at}\n")
-        file.write(f"ended_at: {twitch.ended_at}\n")
+        file.write(f"ended_at: {twitch.ended_at}\n\n")
 
     user_index_start, user_index_end = 0, 100
     user_info_list = []
@@ -617,7 +618,7 @@ if __name__ == "__main__":
         user_without_clip_file, columns=["user_id"]
     )
 
-    for user_id in user_info_df["twitch_user_id"][-3:-2]:
+    for user_id in user_info_df["twitch_user_id"]:
         user_id = str(user_id)
         follower_count = twitch.get_user_follower_count(user_id)
         user_info_df.loc[
@@ -639,6 +640,7 @@ if __name__ == "__main__":
                 concat_df_to_file(
                     [user_all_clips_without_video_file_df, new_df],
                     user_all_clips_without_video_file,
+                    subset=["clip_id"]
                 )
             else:
                 video_data = twitch.get_videos_by_ids(video_id_list)
@@ -665,12 +667,12 @@ if __name__ == "__main__":
             # chat_df_with_regex.to_csv(regex_output_path, index=False)
 
         else:
-            user_without_clip_df = pd.DataFrame(data={"user_id": [user_id]})
+            new_user_without_clip_df = pd.DataFrame(data={"user_id": [user_id]})
             concat_df_to_file(
-                [user_without_clip_df, user_without_clip_df], user_without_clip_file
+                [user_without_clip_df, new_user_without_clip_df], user_without_clip_file
             )
             continue
     user_info_df["follower_count"] = user_info_df["follower_count"].apply(
         lambda x: int(x) if pd.notnull(x) else 0
     )
-    user_info_df.to_csv(USERS_INFO_FILE)
+    user_info_df.to_csv(USERS_INFO_FILE, index=False)

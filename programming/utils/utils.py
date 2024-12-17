@@ -17,7 +17,7 @@ def speech_to_text(speech_file: str, output_file: str):
     print(result)
 
 
-def make_url(url, repeated_param: str, parameters: list, page: Optional[int] = None):
+def make_url(url, repeated_param: str, parameters: list):
     url += "?"
 
     # Loop through the list and add each element as a login parameter

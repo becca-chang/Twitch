@@ -48,12 +48,13 @@ class TwitchMetric:
         file_name = f"{remove_punctuation_from_directory(category)}_top_streamers"
         file_path = f"{DATA_ROOT}/{file_name}.csv"
         if os.path.exists(file_path):
-            streamer_names = pd.read_csv(file_path)["Name"]
+            request_logins_list = pd.read_csv(file_path)["request_logins"]
         else:
             streamer_names = []
             rank_list = []
+            request_logins_list = []
             for page in [1, 2, 3, 4, 5, 6]:
-                url_path = f"https://www.twitchmetrics.net/channels/viewership?game={urllib.parse.quote(category)}&lang=en&page={page}"
+                url_path = f"https://www.twitchmetrics.net/channels/follower?game={urllib.parse.quote(category)}&lang=en&page={page}"
                 self.driver.get(url_path)
                 time.sleep(2)
                 streamers = self.driver.find_elements(
@@ -62,12 +63,16 @@ class TwitchMetric:
                 ranks = self.driver.find_elements(
                     By.CSS_SELECTOR, ".list-group-item span.text-muted"
                 )
-                for rank, streamer in enumerate(ranks, streamers):
+                request_logins = self.driver.find_elements(By.CSS_SELECTOR, ".mb-2 a")
+                
+                for rank, streamer, request_login in zip(ranks, streamers, request_logins):
                     streamer_names.append(streamer.text)
                     rank_list.append(rank.text)
-            df = pd.DataFrame(data={"rank": rank_list, "Name": streamer_names})
+                    request_logins_list.append(request_login.get_attribute("href").split("-")[-1])
+            df = pd.DataFrame(data={"rank": rank_list, "display_name": streamer_names, "request_logins": request_logins_list})
             df.to_csv(file_path, index=False)
-        return streamer_names
+            df.to_csv(USERS_INFO_FILE, index=False)
+        return request_logins_list
 
 
 class Twitch:
@@ -77,7 +82,7 @@ class Twitch:
         self.started_at = started_at
         self.ended_at = ended_at
 
-    def get_users_by_names(self, names: list):
+    def get_users_by_login_names(self, names: list):
         missing_user_file = f"{DATA_ROOT}/missing_users.csv"
         missing_user_df = read_or_create_csv_file(missing_user_file)
 
@@ -279,12 +284,13 @@ def create_users_info_file(data: list, user_info_file_path: str):
         inplace=True,
     )
     df_new.drop(
-        ["login", "type", "profile_image_url", "offline_image_url", "view_count"],
+        ["type", "profile_image_url", "offline_image_url", "view_count"],
         axis=1,
         inplace=True,
     )
-    concat_df_to_file([user_info, df_new], user_info_file_path)
-    return df_new
+    merged_df = pd.merge(user_info, df_new, on='display_name')
+    merged_df.to_csv(user_info_file_path)
+    return merged_df
 
 
 def user_videos_to_csv(video_info_list: list, user_id: str):
@@ -566,7 +572,7 @@ if __name__ == "__main__":
     category = "Just Chatting"
     streamer_names = twitch_metric.get_top_streamers_by_cat(category)
     twitch_metric.quit()
-    twitch = Twitch(started_at="2024-01-01T00:00:00Z", ended_at="2025-01-01T00:00:00Z")
+    twitch = Twitch(started_at="2024-10-01T00:00:00Z", ended_at="2025-01-01T00:00:00Z")
     retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
     # Open the file in write mode
     with open(retrieve_data_record, "a") as file:
@@ -576,14 +582,14 @@ if __name__ == "__main__":
 
     user_index_start, user_index_end = 0, 100
     user_info_list = []
-    user_info, missing_user = twitch.get_users_by_names(
+    user_info, missing_user = twitch.get_users_by_login_names(
         streamer_names[user_index_start:user_index_end]
     )
     user_info_list.extend(user_info.get("data", []))
     while missing_user:
         user_index_start = user_index_end
         user_index_end += len(missing_user)
-        user_info, missing_user = twitch.get_users_by_names(
+        user_info, missing_user = twitch.get_users_by_login_names(
             streamer_names[user_index_start:user_index_end]
         )
         user_info_list.extend(user_info.get("data", []))
@@ -629,17 +635,17 @@ if __name__ == "__main__":
                 user_id, f"{CHAT_DIRECTORY}/{user_id}", clip_urls
             )
             user_all_chats = export_single_user_chats_to_csv(user_id)
-            chat_df_with_regex = re_message(
-                user_all_chats,
-                "message",
-                **{
-                    "cheer_pattern": CHEER_PATTERN,
-                    "subscribed_pattern": SUBSCRIBED_PATTERN,
-                    "gifting_pattern": GIFTING_PATTERN,
-                },
-            )
-            regex_output_path = os.path.join(CHAT_WITH_RE_DIR, f"{user_id}.csv")
-            chat_df_with_regex.to_csv(regex_output_path, index=False)
+            # chat_df_with_regex = re_message(
+            #     user_all_chats,
+            #     "message",
+            #     **{
+            #         "cheer_pattern": CHEER_PATTERN,
+            #         "subscribed_pattern": SUBSCRIBED_PATTERN,
+            #         "gifting_pattern": GIFTING_PATTERN,
+            #     },
+            # )
+            # regex_output_path = os.path.join(CHAT_WITH_RE_DIR, f"{user_id}.csv")
+            # chat_df_with_regex.to_csv(regex_output_path, index=False)
 
         else:
             user_without_clip_df = pd.DataFrame(data=[{"user_id": user_id}])

@@ -302,6 +302,7 @@ def create_users_info_file(data: list, user_info_file_path: str):
         df_new,
         on="login",
     )
+    merged_df["twitch_user_id"] = merged_df["twitch_user_id"].astype(str)
     merged_df.to_csv(user_info_file_path)
     return merged_df
 
@@ -606,7 +607,9 @@ if __name__ == "__main__":
             streamer_names[user_index_start:user_index_end]
         )
         user_info_list.extend(user_info.get("data", []))
-    user_info_df = create_users_info_file(user_info_list, USERS_INFO_FILE)
+    user_info_df = read_or_create_csv_file(USERS_INFO_FILE)
+    if "twitch_user_id" not in user_info_df.columns:
+        user_info_df = create_users_info_file(user_info_list, USERS_INFO_FILE)
 
     # User without clip record
     user_without_clip_file = f"{CLIP_DIRECTORY}/user_without_clip.csv"
@@ -614,7 +617,8 @@ if __name__ == "__main__":
         user_without_clip_file, columns=["user_id"]
     )
 
-    for user_id in user_info_df["twitch_user_id"]:
+    for user_id in user_info_df["twitch_user_id"][-3:-2]:
+        user_id = str(user_id)
         follower_count = twitch.get_user_follower_count(user_id)
         user_info_df.loc[
             user_info_df["twitch_user_id"] == user_id, "follower_count"
@@ -666,4 +670,7 @@ if __name__ == "__main__":
                 [user_without_clip_df, user_without_clip_df], user_without_clip_file
             )
             continue
+    user_info_df["follower_count"] = user_info_df["follower_count"].apply(
+        lambda x: int(x) if pd.notnull(x) else 0
+    )
     user_info_df.to_csv(USERS_INFO_FILE)

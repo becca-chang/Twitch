@@ -48,7 +48,7 @@ def concat_df_to_file(df_list: list, output_file: str, subset=None):
         .drop_duplicates(subset=subset)
         .reset_index(drop=True)
     )
-    concated_df.to_csv(output_file)
+    concated_df.to_csv(output_file, index=False)
     return concated_df
 
 

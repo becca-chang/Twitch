@@ -17,7 +17,7 @@ def read_or_create_csv_file(file_path, columns=[]) -> pd.DataFrame:
         df.to_csv(file_path, index=False)
     else:
         # If file exists, read the data
-        df = pd.read_csv(file_path, index_col=0)
+        df = pd.read_csv(file_path)
     return df
 
 

@@ -616,7 +616,7 @@ if __name__ == "__main__":
     user_without_clip_file = f"{CLIP_DIRECTORY}/user_without_clip.csv"
     user_without_clip_df = read_or_create_csv_file(
         user_without_clip_file, columns=["user_id"]
-    )
+    ).astype(str)
 
     for user_id in user_info_df["twitch_user_id"]:
         user_id = str(user_id)

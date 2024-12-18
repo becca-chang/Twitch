@@ -195,7 +195,7 @@ class Twitch:
                 inplace=True,
             )
             clip_summary.rename(columns={"id": "clip_id"}, inplace=True)
-            concat_df_to_file([summary_clips, clip_summary], file_path, subset="clip_id")
+            concat_df_to_file([summary_clips, clip_summary], file_path, subset=["clip_id"])
             return clip_summary
         return pd.DataFrame()
 

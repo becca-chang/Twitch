@@ -1,7 +1,8 @@
 import json
 import os
 import pandas as pd
-
+from pandas.errors import EmptyDataError
+from utils.utils import write_log
 
 def create_json_file(data, output):
     with open(output, "w") as json_file:
@@ -17,7 +18,11 @@ def read_or_create_csv_file(file_path, columns=[]) -> pd.DataFrame:
         df.to_csv(file_path, index=False)
     else:
         # If file exists, read the data
-        df = pd.read_csv(file_path)
+        try:
+            df = pd.read_csv(file_path)
+        except EmptyDataError as e:
+            file = "data/read_or_create_csv_file.log"
+            write_log(file, f"{file_path}: [EmptyDataError] {e}")
     return df
 
 

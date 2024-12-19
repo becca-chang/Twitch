@@ -586,7 +586,7 @@ if __name__ == "__main__":
     category = "Just Chatting"
     streamer_names = twitch_metric.get_top_streamers_by_cat(category)
     twitch_metric.quit()
-    twitch = Twitch(started_at="2024-12-01T00:00:00Z", ended_at="2024-12-18T00:00:00Z")
+    twitch = Twitch(started_at="2024-10-01T00:00:00Z", ended_at="2024-12-01T00:00:00Z")
     retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
     # Open the file in write mode
     with open(retrieve_data_record, "a") as file:
@@ -653,7 +653,7 @@ if __name__ == "__main__":
             chat_downloader.download_and_save_chats_from_clips(
                 user_id, f"{CHAT_DIRECTORY}/{user_id}", clip_urls
             )
-            user_all_chats = export_single_user_chats_to_csv(user_id)
+            # user_all_chats = export_single_user_chats_to_csv(user_id)
             # chat_df_with_regex = re_message(
             #     user_all_chats,
             #     "message",

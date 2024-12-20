@@ -23,6 +23,7 @@ def read_or_create_csv_file(file_path, columns=[]) -> pd.DataFrame:
         except EmptyDataError as e:
             file = "data/read_or_create_csv_file.log"
             write_log(file, f"{file_path}: [EmptyDataError] {e}")
+            df = pd.DataFrame()
     return df
 
 

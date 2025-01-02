@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 import re
 import traceback
 import whisper
@@ -58,3 +59,12 @@ def write_log(file, exception_message):
         log_file.write(f"{datetime.now()}: {exception_message}\n")
         traceback.print_exc(file=log_file)
         log_file.write("\n")
+
+def get_items_in_dir(dir: str):
+    items = []
+    for item in os.listdir(dir):
+        subdir = f'{dir}/{item}'
+        if os.path.isdir(subdir):
+            if os.listdir(subdir):
+                items.append(str(item))
+    return items

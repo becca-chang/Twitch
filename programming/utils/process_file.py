@@ -20,6 +20,8 @@ def read_or_create_csv_file(file_path, columns=[]) -> pd.DataFrame:
         # If file exists, read the data
         try:
             df = pd.read_csv(file_path)
+        except UnicodeDecodeError as e:
+            df = pd.read_csv(file_path, encoding="ISO-8859-1")
         except EmptyDataError as e:
             file = "data/read_or_create_csv_file.log"
             write_log(file, f"{file_path}: [EmptyDataError] {e}")

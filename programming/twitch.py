@@ -2,6 +2,7 @@ import json
 import os
 import pandas as pd
 import requests
+from typing import Union
 import time
 import urllib.parse
 from chat_downloader import ChatDownloader
@@ -583,26 +584,54 @@ def re_message(chat_df, column="message", **kwargs):
     return chat_df
 
 
-def process_chat_csv(user_id):
-    user_chat_dir = os.path.join(CHAT_DIRECTORY, str(user_id))
-    for file in os.listdir(user_chat_dir):  # "data/chats/<user_id>/<clip_id>.json"
-        origin_file_path = os.path.join(user_chat_dir, file)
-        clip_info = export_single_user_chats_to_csv(origin_file_path, user_id)
-        if clip_info:
-            clip_df = clip_info.get("clip_df")
-            cleaned_clip_path = clip_info.get("cleaned_clip_path")
-            chat_df_with_regex = re_message(
-                clip_df,
-                "message",
-                **{
-                    "cheer_pattern": CHEER_PATTERN,
-                    "subscribed_pattern": SUBSCRIBED_PATTERN,
-                    "gifting_pattern": GIFTING_PATTERN,
-                },
-            )
+def process_chat_csv(user_id: str) -> Union[dict, None]:
+    """
+    Process chat files for a single user with error handling
+    """
+    try:
+        user_chat_dir = os.path.join(CHAT_DIRECTORY, str(user_id))
+        results = []
 
-            chat_df_with_badge_info = chat_df_with_regex.apply(deal_with_badge, axis=1)
-            chat_df_with_badge_info.to_csv(cleaned_clip_path, index=False)
+        for file in os.listdir(user_chat_dir):
+            try:
+                origin_file_path = os.path.join(user_chat_dir, file)
+                clip_info = export_single_user_chats_to_csv(origin_file_path, user_id)
+
+                if clip_info:
+                    clip_df = clip_info.get("clip_df")
+                    cleaned_clip_path = clip_info.get("cleaned_clip_path")
+
+                    chat_df_with_regex = re_message(
+                        clip_df,
+                        "message",
+                        **{
+                            "cheer_pattern": CHEER_PATTERN,
+                            "subscribed_pattern": SUBSCRIBED_PATTERN,
+                            "gifting_pattern": GIFTING_PATTERN,
+                        },
+                    )
+
+                    chat_df_with_badge_info = chat_df_with_regex.apply(
+                        deal_with_badge, axis=1
+                    )
+                    chat_df_with_badge_info.to_csv(cleaned_clip_path, index=False)
+                    results.append({"file": file, "status": "success"})
+            except Exception as e:
+                results.append(
+                    {
+                        "user_id": user_id,
+                        "file": file,
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
+                message = f"Error processing file {file} for user {user_id}: {str(e)}"
+                write_log("process_chat_csv.txt", message)
+        return {"user_id": user_id, "processed_files": results}
+    except Exception as e:
+        message = f"Error processing user {user_id}: {str(e)}"
+        write_log("process_chat_csv.txt", message)
+        return {"user_id": user_id, "status": "error", "error": str(e)}
 
 
 # Define the processing function
@@ -684,6 +713,45 @@ def create_report(messaged_re_dir):
     report_df.to_csv("data/reports.csv")
 
     # create_report(CHAT_WITH_RE_DIR)
+
+
+def process_all_users_parallel(
+    users_with_chats: list[str], max_workers: int = None
+) -> list[Union[dict, None]]:
+    """
+    Process all users' chat data in parallel using ThreadPoolExecutor
+
+    Args:
+        users_with_chats: List of user IDs to process
+        max_workers: Maximum number of threads to use (defaults to None, which lets ThreadPoolExecutor decide)
+
+    Returns:
+        List of processing results for each user
+    """
+    all_results = []
+
+    # Initialize ThreadPoolExecutor with specified number of workers
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks and create a future-to-user mapping
+        future_to_user = {
+            executor.submit(process_chat_csv, user_id): user_id
+            for user_id in users_with_chats
+        }
+
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_user):
+            user_id = future_to_user[future]
+            try:
+                result = future.result()
+                all_results.append(result)
+                print(f"Completed processing for user {user_id}")
+            except Exception as e:
+                print(f"Unhandled error processing user {user_id}: {str(e)}")
+                all_results.append(
+                    {"user_id": user_id, "status": "error", "error": str(e)}
+                )
+
+    return all_results
 
 
 if __name__ == "__main__":
@@ -783,7 +851,4 @@ if __name__ == "__main__":
     # )
     # user_info_df.to_csv(USERS_INFO_FILE, index=False)
     users_with_chats = get_items_in_dir(CHAT_DIRECTORY)
-    # user_info_df = read_or_create_csv_file(USERS_INFO_FILE)
-    # for user_id in user_info_df["twitch_user_id"]:
-    for user_id in users_with_chats:
-        process_chat_csv(user_id)
+    process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)

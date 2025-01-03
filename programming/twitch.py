@@ -21,8 +21,11 @@ DATA_ROOT = "data"
 CLIP_DIRECTORY = f"{DATA_ROOT}/clips"
 CHAT_DIRECTORY = f"{DATA_ROOT}/chats"
 VIDEO_DIRECTORY = f"{DATA_ROOT}/videos"
-CHAT_WITH_RE_DIR = os.path.join(CHAT_DIRECTORY, "chat_with_re")
+
 USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
+
+CHAT_CSV_DIRECTORY = f"{DATA_ROOT}/chats_csv"
+CHAT_WITH_RE_DIR = os.path.join(CHAT_CSV_DIRECTORY, "chat_with_re")
 
 CHEER_PATTERN = r"Cheer(\d+)(?:\s|$)"
 SUBSCRIBED_PATTERN = r"subscribed at Tier (\d+).*?(\d+|\w+) month"
@@ -338,8 +341,8 @@ chatdownloader = ChatDownload()
 
 
 def export_single_user_chats_to_csv(
+    origin_file_path,
     user_id: str,
-    chat_directory=CHAT_DIRECTORY,
     chat_error_file_columns=CHAT_TO_CSV_ERROR_LOG_COLUMNS,
     chat_empty_file_columns=CHAT_IS_EMPTY_LOG_COLUMNS,
 ) -> str:
@@ -357,7 +360,7 @@ def export_single_user_chats_to_csv(
     Returns:
         df: chat file
     """
-
+    return_dict = {}
     chat_error_df = read_or_create_csv_file(
         CHAT_TO_CSV_ERROR_LOG, columns=chat_error_file_columns
     )
@@ -370,80 +373,92 @@ def export_single_user_chats_to_csv(
     chat_error_file_path = []
     chat_error_message = []
     empty = dict(zip(chat_empty_file_columns, [[], [], []]))
-    user_chat_dir = os.path.join(chat_directory, str(user_id))
-    if os.path.exists(user_chat_dir):  # "data/chats/<user_id>"
-        author_id_list = []
-        messages_list = []
-        message_ids_list = []
-        time_texts_list = []
-        time_in_seconds_list = []
-        clips_id_list = []
-        chats_file_path_list = []
-        badges_list = []
-        for file in os.listdir(user_chat_dir):  # "data/chats/<user_id>/<clip_id>.json"
-            if file.endswith(".json"):
-                try:
-                    chat_file = os.path.join(
-                        user_chat_dir, file
-                    )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
-                    df_chat = read_json_file(chat_file)
-                    if df_chat.empty:
-                        empty.get(chat_empty_file_columns[0]).append(
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        )
-                        empty.get(chat_empty_file_columns[1]).append(user_id)
-                        empty.get(chat_empty_file_columns[2]).append(chat_file)
-                        continue
-                    # author
-                    for i in df_chat["author"]:
-                        author_id_list.append(i.get("id"))
 
-                        badges_list.append(
-                            [
-                                badge.get("title") if badge.get("title") else []
-                                for badge in i.get("badges", [])
-                            ]
-                        )
-                    # message
-                    messages = df_chat["message"]
-                    messages_list.extend(messages)
-                    # message_ids
-                    message_ids = df_chat["message_id"]
-                    message_ids_list.extend(message_ids)
-                    # time_texts
-                    time_texts = df_chat["time_text"]
-                    time_texts_list.extend(time_texts)
-                    # time_in_seconds
-                    time_in_seconds = df_chat["time_in_seconds"]
-                    time_in_seconds_list.extend(time_in_seconds)
-                    # clip id
-                    clip_id = [file.split(".")[0] for _ in range(len(df_chat))]
-                    clips_id_list.extend(clip_id)
-                    # chat file path
-                    chats_file = [chat_file for _ in range(len(df_chat))]
-                    chats_file_path_list.extend(chats_file)
-                except Exception as e:
-                    chat_error_datetime.append(
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    )
-                    chat_error_user.append(user_id)
-                    chat_error_file_path.append(chat_file)
-                    chat_error_message.append(e)
-                # chats_data.append(file_data)
+    author_id_list = []
+    messages_list = []
+    message_ids_list = []
+    time_texts_list = []
+    time_in_seconds_list = []
+    clips_id_list = []
+    chats_file_path_list = []
+    badges_list = []
+    os.makedirs(f"{CHAT_CSV_DIRECTORY}/{user_id}", exist_ok=True)
+    if origin_file_path.endswith(".DS_Store"):
+        return None
+    if origin_file_path.endswith(".json"):
+        clip_id = origin_file_path.split("/")[-1].split(".")[0]
+        try:
+            df_chat = read_json_file(
+                origin_file_path
+            )  # 'data/chats/100869214/MildBlindingEelFloof-RnekrluTMQ3PlSfh.json'
+            if df_chat.empty:
+                empty.get(chat_empty_file_columns[0]).append(
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
+                empty.get(chat_empty_file_columns[1]).append(user_id)
+                empty.get(chat_empty_file_columns[2]).append(clip_id)
+            # author
+            for i in df_chat["author"]:
+                author_id_list.append(i.get("id"))
 
-        user_all_chats = pd.DataFrame(
-            data={
-                "author_id": author_id_list,
-                "badges_list": badges_list,
-                "message": messages_list,
-                "message_id": message_ids_list,
-                "time_text": time_texts_list,
-                "time_in_seconds": time_in_seconds_list,
-                "clip_id": clips_id_list,
-                "chats_file_path": chats_file_path_list,
-            }
-        )
-        user_all_chats.to_csv(f"{chat_directory}/{user_id}.csv")
+                badges_list.append(
+                    [
+                        badge.get("title") if badge.get("title") else []
+                        for badge in i.get("badges", [])
+                    ]
+                )
+            # message
+            messages = df_chat["message"]
+            messages_list.extend(messages)
+            # message_ids
+            message_ids = df_chat["message_id"]
+            message_ids_list.extend(message_ids)
+            # time_texts
+            time_texts = df_chat["time_text"]
+            time_texts_list.extend(time_texts)
+            # time_in_seconds
+            time_in_seconds = df_chat["time_in_seconds"]
+            time_in_seconds_list.extend(time_in_seconds)
+            # clip id
+            clips_id_list.extend([clip_id for _ in range(len(df_chat))])
+            # chat file path
+            chats_file = [origin_file_path for _ in range(len(df_chat))]
+            chats_file_path_list.extend(chats_file)
+            clip_df = pd.DataFrame(
+                data={
+                    "author_id": author_id_list,
+                    "badges_list": badges_list,
+                    "message": messages_list,
+                    "message_id": message_ids_list,
+                    "time_text": time_texts_list,
+                    "time_in_seconds": time_in_seconds_list,
+                    "clip_id": clips_id_list,
+                    "chats_file_path": chats_file_path_list,
+                }
+            )
+            cleaned_clip_path = f"{CHAT_CSV_DIRECTORY}/{user_id}/{clip_id}.csv"
+            clip_df.to_csv(cleaned_clip_path)
+            return_dict = {"clip_df": clip_df, "cleaned_clip_path": cleaned_clip_path}
+        except Exception as e:
+            chat_error_datetime.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            chat_error_user.append(user_id)
+            chat_error_file_path.append(origin_file_path)
+            chat_error_message.append(e)
+            # chats_data.append(file_data)
+
+        # user_all_chats = pd.DataFrame(
+        #     data={
+        #         "author_id": author_id_list,
+        #         "badges_list": badges_list,
+        #         "message": messages_list,
+        #         "message_id": message_ids_list,
+        #         "time_text": time_texts_list,
+        #         "time_in_seconds": time_in_seconds_list,
+        #         "clip_id": clips_id_list,
+        #         "chats_file_path": chats_file_path_list,
+        #     }
+        # )
+        # user_all_chats.to_csv(f"{chat_directory}/{user_id}.csv")
 
         errors_df = pd.DataFrame(
             dict(
@@ -463,9 +478,7 @@ def export_single_user_chats_to_csv(
         errors_df.to_csv(CHAT_TO_CSV_ERROR_LOG, index=False)
         empty_df = pd.concat([chat_empty_df, empty_df], ignore_index=True)
         empty_df.to_csv(CHAT_IS_EMPTY_LOG, index=False)
-        return user_all_chats
-    else:  # dir not exists
-        return None
+    return return_dict
 
 
 def deal_with_badge(row):
@@ -492,7 +505,7 @@ def deal_with_badge(row):
                 row["badge_sub_gift_leader"] = badge.split(" ")[-1]
             if "Gift Subs" in badge:  # e.g. 10 Gift Subs
                 row["badge_has_sub_gifter_badge"] = True
-                row["badge_badge_sub_gifter_badge_version"] = badge.split(" ")[0]
+                row["badge_sub_gifter_badge_version"] = badge.split(" ")[0]
             # cheer
             if "cheer" in badge:  # e.g. cheer 5000
                 row["badge_has_bits_badge"] = True
@@ -506,8 +519,12 @@ def deal_with_badge(row):
 
 # Regular expression message
 def re_message(chat_df, column="message", **kwargs):
-    chat_df["subscribed_type"] = None
+    chat_df["comment_type"] = None
+    # cheer
+    chat_df["cheer_type"] = None
     chat_df["cheer"] = None
+    # subscribe/gifting
+    chat_df["self_subscribed_type"] = None
     chat_df["tier_level"] = None
     chat_df["subscribed_month"] = None
     chat_df["gifting_count"] = None
@@ -533,10 +550,12 @@ def re_message(chat_df, column="message", **kwargs):
         try:
             # message
             if re.match(cheer_pattern, message):  # 小奇點
-                chat_df.loc[index, "subscribed_type"] = 3
+                chat_df.loc[index, "comment_type"] = 0
+                chat_df.loc[index, "cheer_type"] = 1
                 chat_df.loc[index, "cheer"] = re.match(cheer_pattern, message).group(1)
             elif re.search(subscribed_pattern, message):  # 自己訂閱
-                chat_df.loc[index, "subscribed_type"] = 1
+                chat_df.loc[index, "comment_type"] = 0
+                chat_df.loc[index, "self_subscribed_type"] = 1
                 chat_df.loc[index, "tier_level"] = re.search(
                     subscribed_pattern, message
                 ).group(1)
@@ -544,7 +563,9 @@ def re_message(chat_df, column="message", **kwargs):
                     subscribed_pattern, message
                 ).group(2)
             elif re.search(gifting_pattern, message):  # 贈送訂閱
-                chat_df.loc[index, "subscribed_type"] = 2
+                chat_df.loc[index, "comment_type"] = 0
+                chat_df.loc[index, "cheer_type"] = 0
+                chat_df.loc[index, "self_subscribed_type"] = 0
                 chat_df.loc[index, "tier_level"] = re.search(
                     gifting_pattern, message
                 ).group(2)
@@ -552,7 +573,7 @@ def re_message(chat_df, column="message", **kwargs):
                     gifting_pattern, message
                 ).group(1)
             else:
-                chat_df.loc[index, "subscribed_type"] = 0
+                chat_df.loc[index, "comment_type"] = 1
         except Exception as e:
             exception_message = f"""re_message(chat_df_index: {index}, chats_file_path: {chat_df['chats_file_path']}). Exception: {e}
             """
@@ -560,6 +581,28 @@ def re_message(chat_df, column="message", **kwargs):
             # chat_df.loc[index, "re_message_error"] = e
             continue
     return chat_df
+
+
+def process_chat_csv(user_id):
+    user_chat_dir = os.path.join(CHAT_DIRECTORY, str(user_id))
+    for file in os.listdir(user_chat_dir):  # "data/chats/<user_id>/<clip_id>.json"
+        origin_file_path = os.path.join(user_chat_dir, file)
+        clip_info = export_single_user_chats_to_csv(origin_file_path, user_id)
+        if clip_info:
+            clip_df = clip_info.get("clip_df")
+            cleaned_clip_path = clip_info.get("cleaned_clip_path")
+            chat_df_with_regex = re_message(
+                clip_df,
+                "message",
+                **{
+                    "cheer_pattern": CHEER_PATTERN,
+                    "subscribed_pattern": SUBSCRIBED_PATTERN,
+                    "gifting_pattern": GIFTING_PATTERN,
+                },
+            )
+
+            chat_df_with_badge_info = chat_df_with_regex.apply(deal_with_badge, axis=1)
+            chat_df_with_badge_info.to_csv(cleaned_clip_path, index=False)
 
 
 # Define the processing function
@@ -621,11 +664,11 @@ def create_report(messaged_re_dir):
 
             message_count = df["message_id"].count()
             distinct_clip_count = df["clip_id"].nunique()
-            subscribed_count = df[df["subscribed_type"] == 1]["tier_level"].count()
-            gifting_count = df[df["subscribed_type"] == 2]["gifting_count"].count()
-            gifting_amount = int(df[df["subscribed_type"] == 2]["gifting_count"].sum())
-            cheer_count = df[df["subscribed_type"] == 3]["message"].count()
-            cheer_amount = int(df[df["subscribed_type"] == 3]["cheer"].sum())
+            subscribed_count = df[df["comment_type"] == 1]["tier_level"].count()
+            gifting_count = df[df["comment_type"] == 2]["gifting_count"].count()
+            gifting_amount = int(df[df["comment_type"] == 2]["gifting_count"].sum())
+            cheer_count = df[df["comment_type"] == 3]["message"].count()
+            cheer_amount = int(df[df["comment_type"] == 3]["cheer"].sum())
             user_report = {
                 "user_id": user_id,
                 "message_count": message_count,
@@ -641,7 +684,6 @@ def create_report(messaged_re_dir):
     report_df.to_csv("data/reports.csv")
 
     # create_report(CHAT_WITH_RE_DIR)
-
 
 
 if __name__ == "__main__":
@@ -744,16 +786,4 @@ if __name__ == "__main__":
     # user_info_df = read_or_create_csv_file(USERS_INFO_FILE)
     # for user_id in user_info_df["twitch_user_id"]:
     for user_id in users_with_chats:
-        user_all_chats = export_single_user_chats_to_csv(user_id)
-        chat_df_with_regex = re_message(
-            user_all_chats,
-            "message",
-            **{
-                "cheer_pattern": CHEER_PATTERN,
-                "subscribed_pattern": SUBSCRIBED_PATTERN,
-                "gifting_pattern": GIFTING_PATTERN,
-            },
-        )
-        chat_df_with_badge_info = chat_df_with_regex.apply(deal_with_badge, axis=1)
-        regex_output_path = os.path.join(CHAT_WITH_RE_DIR, f"{user_id}.csv")
-        chat_df_with_badge_info.to_csv(regex_output_path, index=False)
+        process_chat_csv(user_id)

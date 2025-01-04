@@ -2,9 +2,13 @@ import json
 import os
 import pandas as pd
 import requests
-from typing import Union
+import subprocess
 import time
 import urllib.parse
+
+from typing import Union
+from tqdm import tqdm
+
 from chat_downloader import ChatDownloader
 from chat_downloader.errors import NoChatReplay
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,6 +26,7 @@ DATA_ROOT = "data"
 CLIP_DIRECTORY = f"{DATA_ROOT}/clips"
 CHAT_DIRECTORY = f"{DATA_ROOT}/chats"
 VIDEO_DIRECTORY = f"{DATA_ROOT}/videos"
+MP4_DIRECTORY = f"{DATA_ROOT}/mp4"
 
 USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
 
@@ -753,6 +758,129 @@ def process_all_users_parallel(
 
     return all_results
 
+def download_single_video(user_id: str, clip_id: str, output_path: str):
+    """
+    Download a single video and return the result
+    """
+    try:
+        result = subprocess.run(
+            ['twitch-dl', 'download', clip_id, '--output', output_path, '--quality', 'source'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            return {
+                "user_id": user_id,
+                "clip_id": clip_id,
+                "status": "success",
+                "output_path": output_path
+            }
+        else:
+            return {
+                "user_id": user_id,
+                "clip_id": clip_id,
+                "status": "error",
+                "error": result.stderr,
+                "output_path": output_path
+            }
+    except Exception as e:
+        return {
+            "user_id": user_id,
+            "clip_id": clip_id,
+            "status": "error",
+            "error": str(e),
+            "output_path": output_path
+        }
+    
+def download_user_videos(user_id: str):
+    """
+    Download all videos for a single user
+    """
+    try:
+        user_mp4_directory_path = f"{MP4_DIRECTORY}/{user_id}"
+        os.makedirs(user_mp4_directory_path, exist_ok=True)
+        user_chat_dir = os.path.join(CHAT_DIRECTORY, str(user_id))
+
+        results = []
+
+        for file in os.listdir(user_chat_dir):
+            if file.endswith(".json"):
+                clip_id = file.split(".")[0]
+                output_path = f"{user_mp4_directory_path}/{clip_id}.mp4"
+                # Skip if file already exists
+                if os.path.exists(output_path):
+                    results.append({
+                        "user_id": user_id,
+                        "clip_id": clip_id,
+                        "status": "skipped",
+                        "message": "File already exists",
+                        "output_path": output_path
+                    })
+                    continue
+                # Run the subprocess to download the clip to the specified path
+                result = download_single_video(user_id, clip_id, output_path)
+                results.append(result)
+        return {
+            "user_id": user_id,
+            "status": "completed",
+            "results": results
+        }
+    except Exception as e:
+        return {
+            "user_id": user_id,
+            "status": "error",
+            "error": str(e)
+        }
+
+def download_all_videos_parallel(users_with_chats: list[str], max_workers: int = 4):
+    """
+    Download videos for all users in parallel using ThreadPoolExecutor
+    
+    Args:
+        users_with_chats: List of user IDs to process
+        max_workers: Maximum number of threads to use (default: 4)
+    
+    Returns:
+        List of download results for each user
+    """
+    all_results = []
+    total_users = len(users_with_chats)
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Create a dictionary mapping futures to user_ids
+        future_to_user = {
+            executor.submit(download_user_videos, user_id): user_id 
+            for user_id in users_with_chats
+        }
+        
+        # Use tqdm for progress bar
+        with tqdm(total=total_users, desc="Processing users") as pbar:
+            for future in as_completed(future_to_user):
+                user_id = future_to_user[future]
+                try:
+                    result = future.result()
+                    all_results.append(result)
+                    
+                    # Log the result
+                    if result["status"] == "completed":
+                        success_count = sum(1 for r in result["results"] if r["status"] == "success")
+                        total_count = len(result["results"])
+                        print(f"User {user_id}: Successfully downloaded {success_count}/{total_count} videos")
+                    else:
+                        print(f"User {user_id}: Error - {result.get('error', 'Unknown error')}")
+                    
+                except Exception as e:
+                    error_msg = f"Unhandled error processing user {user_id}: {str(e)}"
+                    print(error_msg)
+                    all_results.append({
+                        "user_id": user_id,
+                        "status": "error",
+                        "error": str(e)
+                    })
+                    write_log("download_mp4.txt", error_msg)
+                
+                pbar.update(1)
 
 if __name__ == "__main__":
     # twitch_metric = TwitchMetric()
@@ -851,4 +979,5 @@ if __name__ == "__main__":
     # )
     # user_info_df.to_csv(USERS_INFO_FILE, index=False)
     users_with_chats = get_items_in_dir(CHAT_DIRECTORY)
-    process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)
+    download_all_videos_parallel(users_with_chats)
+    # process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)

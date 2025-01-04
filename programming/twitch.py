@@ -762,6 +762,9 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
     """
     Download a single video and return the result
     """
+    file_path = "data/donload_mp4_fail.csv"
+    error_df_columns = ["user_id", "clip_id", "status", "output_path"]
+    error_df = read_or_create_csv_file(file_path, error_df_columns)
     try:
         result = subprocess.run(
             ['twitch-dl', 'download', clip_id, '--output', output_path, '--quality', 'source'],
@@ -770,28 +773,33 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
         )
         
         if result.returncode == 0:
-            return {
+            result_dict = {
                 "user_id": user_id,
                 "clip_id": clip_id,
                 "status": "success",
                 "output_path": output_path
             }
+            return result_dict
         else:
-            return {
+            result_dict = {
                 "user_id": user_id,
                 "clip_id": clip_id,
                 "status": "error",
                 "error": result.stderr,
                 "output_path": output_path
             }
+            concat_df_to_file([error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"])
+            return result_dict
     except Exception as e:
-        return {
+        result_dict = {
             "user_id": user_id,
             "clip_id": clip_id,
             "status": "error",
             "error": str(e),
             "output_path": output_path
         }
+        concat_df_to_file([error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"])
+        return result_dict
     
 def download_user_videos(user_id: str):
     """

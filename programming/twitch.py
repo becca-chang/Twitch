@@ -27,11 +27,10 @@ CLIP_DIRECTORY = f"{DATA_ROOT}/clips"
 CHAT_DIRECTORY = f"{DATA_ROOT}/chats"
 VIDEO_DIRECTORY = f"{DATA_ROOT}/videos"
 MP4_DIRECTORY = f"{DATA_ROOT}/mp4"
-
-USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
-
 CHAT_CSV_DIRECTORY = f"{DATA_ROOT}/chats_csv"
 CHAT_WITH_RE_DIR = os.path.join(CHAT_CSV_DIRECTORY, "chat_with_re")
+
+USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
 
 CHEER_PATTERN = r"Cheer(\d+)(?:\s|$)"
 SUBSCRIBED_PATTERN = r"subscribed at Tier (\d+).*?(\d+|\w+) month"
@@ -44,8 +43,8 @@ CHAT_TO_CSV_ERROR_LOG_COLUMNS = ["datetime", "user_id", "file_path", "message"]
 CHAT_IS_EMPTY_LOG_COLUMNS = ["datetime", "user_id", "file_path"]
 RE_MESSAGE_LOG = f"{CHAT_DIRECTORY}/re_message.log"
 FETCH_CLIPS_LOG = f"{CLIP_DIRECTORY}/fetch_data.log"
-
-
+PROCESS_CHAT_CSV_LOG = f"{CHAT_CSV_DIRECTORY}/process_chat_csv.txt"
+DOWNLOAD_MP4_LOG = f"{MP4_DIRECTORY}/download_mp4.txt"
 class TwitchMetric:
     def __init__(self):
         self.driver = webdriver.Chrome()
@@ -631,11 +630,11 @@ def process_chat_csv(user_id: str) -> Union[dict, None]:
                     }
                 )
                 message = f"Error processing file {file} for user {user_id}: {str(e)}"
-                write_log("process_chat_csv.txt", message)
+                write_log(PROCESS_CHAT_CSV_LOG, message)
         return {"user_id": user_id, "processed_files": results}
     except Exception as e:
         message = f"Error processing user {user_id}: {str(e)}"
-        write_log("process_chat_csv.txt", message)
+        write_log(PROCESS_CHAT_CSV_LOG, message)
         return {"user_id": user_id, "status": "error", "error": str(e)}
 
 
@@ -886,7 +885,7 @@ def download_all_videos_parallel(users_with_chats: list[str], max_workers: int =
                         "status": "error",
                         "error": str(e)
                     })
-                    write_log("download_mp4.txt", error_msg)
+                    write_log(DOWNLOAD_MP4_LOG, error_msg)
                 
                 pbar.update(1)
 

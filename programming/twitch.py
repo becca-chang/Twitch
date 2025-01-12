@@ -19,7 +19,7 @@ from utils.utils import *
 from utils.process_file import read_or_create_csv_file, read_json_file
 
 CLIENT_ID = "olj1zlf45mtffa1166zd8b1ersrew3"
-AUTHORIZATION = "Bearer ao05bvk118sgvfolodd8c585pidnzh"
+AUTHORIZATION = "Bearer zkvgshjkpx69vozqi4h2fq5fmgjzuu"
 TWITCH_HEADERS = {"Client-Id": CLIENT_ID, "Authorization": AUTHORIZATION}
 
 DATA_ROOT = "data"

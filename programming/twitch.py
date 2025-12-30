@@ -1,10 +1,10 @@
+import demoji
 import json
 import os
 import pandas as pd
 import requests
 import subprocess
 import time
-import urllib.parse
 
 from typing import Union
 from tqdm import tqdm
@@ -13,21 +13,19 @@ from chat_downloader import ChatDownloader
 from chat_downloader.errors import NoChatReplay
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from selenium import webdriver
-from selenium.webdriver.common.by import By
 from utils.utils import *
 from utils.process_file import read_or_create_csv_file, read_json_file
 
 CLIENT_ID = "olj1zlf45mtffa1166zd8b1ersrew3"
-AUTHORIZATION = "Bearer zkvgshjkpx69vozqi4h2fq5fmgjzuu"
+AUTHORIZATION = "Bearer wm5mm5vlualx8xbpa6qumsne0crb33"
 TWITCH_HEADERS = {"Client-Id": CLIENT_ID, "Authorization": AUTHORIZATION}
 
 DATA_ROOT = "data"
 CLIP_DIRECTORY = f"{DATA_ROOT}/clips"
-CHAT_DIRECTORY = f"{DATA_ROOT}/chats"
+CHAT_DIRECTORY = f"{DATA_ROOT}/comments"
 VIDEO_DIRECTORY = f"{DATA_ROOT}/videos"
 MP4_DIRECTORY = f"{DATA_ROOT}/mp4"
-CHAT_CSV_DIRECTORY = f"{DATA_ROOT}/chats_csv"
+CHAT_CSV_DIRECTORY = f"{DATA_ROOT}/comments_csv"
 CHAT_WITH_RE_DIR = os.path.join(CHAT_CSV_DIRECTORY, "chat_with_re")
 
 USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
@@ -45,52 +43,6 @@ RE_MESSAGE_LOG = f"{CHAT_DIRECTORY}/re_message.log"
 FETCH_CLIPS_LOG = f"{CLIP_DIRECTORY}/fetch_data.log"
 PROCESS_CHAT_CSV_LOG = f"{CHAT_CSV_DIRECTORY}/process_chat_csv.txt"
 DOWNLOAD_MP4_LOG = f"{MP4_DIRECTORY}/download_mp4.txt"
-class TwitchMetric:
-    def __init__(self):
-        self.driver = webdriver.Chrome()
-
-    def quit(self):
-        self.driver.quit()
-
-    def get_top_streamers_by_cat(self, category):
-        file_name = f"{remove_punctuation_from_directory(category)}_top_streamers"
-        file_path = f"{DATA_ROOT}/{file_name}.csv"
-        if os.path.exists(file_path):
-            request_logins_list = pd.read_csv(file_path)["login"]
-        else:
-            streamer_names = []
-            rank_list = []
-            request_logins_list = []
-            for page in [1, 2, 3, 4, 5, 6]:
-                url_path = f"https://www.twitchmetrics.net/channels/follower?game={urllib.parse.quote(category)}&lang=en&page={page}"
-                self.driver.get(url_path)
-                time.sleep(2)
-                streamers = self.driver.find_elements(
-                    By.CSS_SELECTOR, ".list-group-item h5.mb-0"
-                )
-                ranks = self.driver.find_elements(
-                    By.CSS_SELECTOR, ".list-group-item span.text-muted"
-                )
-                request_logins = self.driver.find_elements(By.CSS_SELECTOR, ".mb-2 a")
-
-                for rank, streamer, request_login in zip(
-                    ranks, streamers, request_logins
-                ):
-                    streamer_names.append(streamer.text)
-                    rank_list.append(rank.text)
-                    request_logins_list.append(
-                        request_login.get_attribute("href").split("-")[-1]
-                    )
-            df = pd.DataFrame(
-                data={
-                    "rank": rank_list,
-                    "display_name": streamer_names,
-                    "login": request_logins_list,
-                }
-            )
-            df.to_csv(file_path, index=False)
-            df.to_csv(USERS_INFO_FILE, index=False)
-        return request_logins_list
 
 
 class Twitch:
@@ -101,20 +53,13 @@ class Twitch:
         self.ended_at = ended_at
 
     def get_users_by_login_names(self, names: list):
-        missing_user_file = f"{DATA_ROOT}/missing_users.csv"
-        missing_user_df = read_or_create_csv_file(missing_user_file)
 
         url = make_url("https://api.twitch.tv/helix/users", "login", names)
         payload = {}
         response = requests.request(
             "GET", url, headers=TWITCH_HEADERS, data=payload
         ).json()
-        response_display_name = [i["login"] for i in response["data"]]
-        missing_user = []
-        missing_user = list(set(names) - set(response_display_name))
-        new_df = pd.DataFrame(data={"display_name": list(missing_user)})
-        concat_df_to_file([new_df], missing_user_file)
-        return response, missing_user
+        return response
 
     def get_user_follower_count(self, user_id: str):
         url = "https://api.twitch.tv/helix/channels/followers"
@@ -126,14 +71,14 @@ class Twitch:
 
     def get_clip_info(
         self,
-        user: str,
+        user_id: str,
         started_at: Optional[str] = None,
         ended_at: Optional[str] = None,
     ):
         """
         Efficiently retrieve clip information with concurrent pagination
 
-        :param user: Twitch user ID
+        :param user_id: Twitch user ID
         :param started_at: Start date for clips retrieval
         :param started_at: End date for clips retrieval
         :return: Dictionary of clip data
@@ -166,7 +111,7 @@ class Twitch:
             while True:
                 # Prepare payload
                 payload = {
-                    "broadcaster_id": user,
+                    "broadcaster_id": user_id,
                     "started_at": started_at,
                     "ended_at": ended_at,
                 }
@@ -197,37 +142,14 @@ class Twitch:
         ).get("data")
         if data:
             clip_summary = pd.DataFrame(data=data)
-            clip_summary.drop(
-                ["thumbnail_url", "embed_url", "vod_offset"],
-                axis=1,
-                inplace=True,
-            )
             clip_summary.rename(columns={"id": "clip_id"}, inplace=True)
             concat_df_to_file(
                 [summary_clips, clip_summary], file_path, subset=["clip_id"]
             )
             return clip_summary
-        return pd.DataFrame()
-
-    def get_videos_by_ids(self, video_ids):
-        total = len(video_ids)
-        if total:
-            video_info_list = []
-            start = 0
-            end = 100
-            while total > start:
-                request_video_ids = video_ids[start:end]
-                url = make_url(
-                    "https://api.twitch.tv/helix/videos", "id", request_video_ids
-                )
-                response = requests.request("GET", url, headers=TWITCH_HEADERS, data={})
-                r = response.json()
-                video_info_list.extend(r.get("data", []))
-                start += 100
-                end += 100
-
-            return video_info_list
-        return None
+        else:
+            write_log(FETCH_CLIPS_LOG, f"{user} has no clips")
+            return pd.DataFrame()
 
 
 class ChatDownload:
@@ -295,51 +217,17 @@ def get_unique_values_from_df_column(df, column):
 
 
 def create_users_info_file(data: list, user_info_file_path: str):
-    user_info = read_or_create_csv_file(user_info_file_path)
-    df_new = pd.DataFrame(data=data)
-    df_new.rename(
+    user_info_df = pd.DataFrame(data=data)
+    user_info_df.rename(
         columns={
             "id": "twitch_user_id",
         },
         inplace=True,
     )
-    df_new.drop(
-        ["type", "profile_image_url", "offline_image_url", "view_count"],
-        axis=1,
-        inplace=True,
-    )
-    merged_df = user_info.merge(
-        df_new,
-        on="login",
-    )
-    merged_df["twitch_user_id"] = merged_df["twitch_user_id"].astype(str)
-    merged_df.to_csv(user_info_file_path, index=False)
-    return merged_df
 
-
-def user_videos_to_csv(video_info_list: list, user_id: str):
-    df = pd.DataFrame(data=video_info_list)
-    df.rename(
-        columns={
-            "id": "twitch_video_id",
-        },
-        inplace=True,
-    )
-    df.drop(
-        [
-            "stream_id",
-            "user_name",
-            "description",
-            "published_at",
-            "thumbnail_url",
-            "viewable",
-            "type",
-        ],
-        axis=1,
-        inplace=True,
-    )
-    df.to_csv(f"{VIDEO_DIRECTORY}/{user_id}.csv", index=False)
-    return df
+    user_info_df["twitch_user_id"] = user_info_df["twitch_user_id"].astype(str)
+    user_info_df.to_csv(user_info_file_path, index=False)
+    return user_info_df
 
 
 chatdownloader = ChatDownload()
@@ -356,7 +244,7 @@ def export_single_user_chats_to_csv(
     2. Write all of them into a csv file.
     Args:
         user (str): user id
-        chat_directory (str): chat directory. Defaults to "data/chats".
+        origin_file_path: json file
         chat_error_file_columns (list, optional):
             Defaults to ["datetime", "user_id", "file_path", "message"].
         chat_empty_file_columns (list, optional):
@@ -429,11 +317,11 @@ def export_single_user_chats_to_csv(
             # chat file path
             chats_file = [origin_file_path for _ in range(len(df_chat))]
             chats_file_path_list.extend(chats_file)
-            clip_df = pd.DataFrame(
+            clip_chat_df = pd.DataFrame(
                 data={
                     "author_id": author_id_list,
                     "badges_list": badges_list,
-                    "message": messages_list,
+                    "raw_message": messages_list,
                     "message_id": message_ids_list,
                     "time_text": time_texts_list,
                     "time_in_seconds": time_in_seconds_list,
@@ -442,29 +330,16 @@ def export_single_user_chats_to_csv(
                 }
             )
             cleaned_clip_path = f"{CHAT_CSV_DIRECTORY}/{user_id}/{clip_id}.csv"
-            clip_df.to_csv(cleaned_clip_path)
-            return_dict = {"clip_df": clip_df, "cleaned_clip_path": cleaned_clip_path}
+            clip_chat_df.to_csv(cleaned_clip_path)
+            return_dict = {
+                "clip_chat_df": clip_chat_df,
+                "cleaned_clip_path": cleaned_clip_path,
+            }
         except Exception as e:
             chat_error_datetime.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             chat_error_user.append(user_id)
             chat_error_file_path.append(origin_file_path)
             chat_error_message.append(e)
-            # chats_data.append(file_data)
-
-        # user_all_chats = pd.DataFrame(
-        #     data={
-        #         "author_id": author_id_list,
-        #         "badges_list": badges_list,
-        #         "message": messages_list,
-        #         "message_id": message_ids_list,
-        #         "time_text": time_texts_list,
-        #         "time_in_seconds": time_in_seconds_list,
-        #         "clip_id": clips_id_list,
-        #         "chats_file_path": chats_file_path_list,
-        #     }
-        # )
-        # user_all_chats.to_csv(f"{chat_directory}/{user_id}.csv")
-
         errors_df = pd.DataFrame(
             dict(
                 zip(
@@ -523,7 +398,7 @@ def deal_with_badge(row):
 
 
 # Regular expression message
-def re_message(chat_df, column="message", **kwargs):
+def re_message(chat_df, column="raw_message", **kwargs):
     chat_df["comment_type"] = None
     # cheer
     chat_df["cheer_type"] = None
@@ -588,6 +463,22 @@ def re_message(chat_df, column="message", **kwargs):
     return chat_df
 
 
+def get_emoji_meaning(chat_df, column="raw_message"):
+    chat_df["message"] = None
+    messages = list(chat_df[column].astype(str))
+    for index, message in enumerate(messages):
+        emoji_desc = demoji.findall(message)  # {🔥: fire}
+
+        emoji_list = [char for char in message if char in emoji_desc]
+        chat_df.loc[index, "emoji_count"] = int(len(emoji_list))
+
+        for emoji, emoji_meaning in emoji_desc.items():
+            message = message.replace(emoji, emoji_meaning)
+        chat_df.loc[index, "message"] = message
+
+    return chat_df
+
+
 def process_chat_csv(user_id: str) -> Union[dict, None]:
     """
     Process chat files for a single user with error handling
@@ -599,15 +490,17 @@ def process_chat_csv(user_id: str) -> Union[dict, None]:
         for file in os.listdir(user_chat_dir):
             try:
                 origin_file_path = os.path.join(user_chat_dir, file)
-                clip_info = export_single_user_chats_to_csv(origin_file_path, user_id)
+                clip_chat_df = export_single_user_chats_to_csv(
+                    origin_file_path, user_id
+                )
 
-                if clip_info:
-                    clip_df = clip_info.get("clip_df")
-                    cleaned_clip_path = clip_info.get("cleaned_clip_path")
+                if clip_chat_df:
+                    clip_df = clip_chat_df.get("clip_chat_df")
+                    cleaned_clip_path = clip_chat_df.get("cleaned_clip_path")
 
                     chat_df_with_regex = re_message(
                         clip_df,
-                        "message",
+                        "raw_message",
                         **{
                             "cheer_pattern": CHEER_PATTERN,
                             "subscribed_pattern": SUBSCRIBED_PATTERN,
@@ -615,7 +508,11 @@ def process_chat_csv(user_id: str) -> Union[dict, None]:
                         },
                     )
 
-                    chat_df_with_badge_info = chat_df_with_regex.apply(
+                    chat_df_with_emoji_meaning = get_emoji_meaning(
+                        chat_df_with_regex, "raw_message"
+                    )
+
+                    chat_df_with_badge_info = chat_df_with_emoji_meaning.apply(
                         deal_with_badge, axis=1
                     )
                     chat_df_with_badge_info.to_csv(cleaned_clip_path, index=False)
@@ -636,31 +533,6 @@ def process_chat_csv(user_id: str) -> Union[dict, None]:
         message = f"Error processing user {user_id}: {str(e)}"
         write_log(PROCESS_CHAT_CSV_LOG, message)
         return {"user_id": user_id, "status": "error", "error": str(e)}
-
-
-# Define the processing function
-# def apply_regex_and_save_to_file(
-#     file_full_path, output_directory, cheer_pattern, subscribed_pattern, gifting_pattern
-# ):
-#     os.makedirs(output_directory, exist_ok=True)
-#     try:
-#         # Read and process the file
-#         df = pd.read_csv(file_full_path)
-#         df_new = re_message(
-#             df,
-#             "message",
-#             **{
-#                 "cheer_pattern": cheer_pattern,
-#                 "subscribed_pattern": subscribed_pattern,
-#                 "gifting_pattern": gifting_pattern,
-#             },
-#         )
-#         # Save the processed file
-#         output_path = os.path.join(output_directory, os.path.basename(file_full_path))
-#         df_new.to_csv(output_path, index=False)
-#         print(f"Processed: {file_full_path}")
-#     except Exception as e:
-#         print(f"Error processing {file_full_path}: {e}")
 
 
 def get_user_clips_without_chats(
@@ -757,6 +629,7 @@ def process_all_users_parallel(
 
     return all_results
 
+
 def download_single_video(user_id: str, clip_id: str, output_path: str):
     """
     Download a single video and return the result
@@ -766,17 +639,25 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
     error_df = read_or_create_csv_file(file_path, error_df_columns)
     try:
         result = subprocess.run(
-            ['twitch-dl', 'download', clip_id, '--output', output_path, '--quality', 'source'],
+            [
+                "twitch-dl",
+                "download",
+                clip_id,
+                "--output",
+                output_path,
+                "--quality",
+                "source",
+            ],
             capture_output=True,
-            text=True
+            text=True,
         )
-        
+
         if result.returncode == 0:
             result_dict = {
                 "user_id": user_id,
                 "clip_id": clip_id,
                 "status": "success",
-                "output_path": output_path
+                "output_path": output_path,
             }
             return result_dict
         else:
@@ -785,9 +666,11 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
                 "clip_id": clip_id,
                 "status": "error",
                 "error": result.stderr,
-                "output_path": output_path
+                "output_path": output_path,
             }
-            concat_df_to_file([error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"])
+            concat_df_to_file(
+                [error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"]
+            )
             return result_dict
     except Exception as e:
         result_dict = {
@@ -795,11 +678,14 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
             "clip_id": clip_id,
             "status": "error",
             "error": str(e),
-            "output_path": output_path
+            "output_path": output_path,
         }
-        concat_df_to_file([error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"])
+        concat_df_to_file(
+            [error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"]
+        )
         return result_dict
-    
+
+
 def download_user_videos(user_id: str):
     """
     Download all videos for a single user
@@ -817,50 +703,45 @@ def download_user_videos(user_id: str):
                 output_path = f"{user_mp4_directory_path}/{clip_id}.mp4"
                 # Skip if file already exists
                 if os.path.exists(output_path):
-                    results.append({
-                        "user_id": user_id,
-                        "clip_id": clip_id,
-                        "status": "skipped",
-                        "message": "File already exists",
-                        "output_path": output_path
-                    })
+                    results.append(
+                        {
+                            "user_id": user_id,
+                            "clip_id": clip_id,
+                            "status": "skipped",
+                            "message": "File already exists",
+                            "output_path": output_path,
+                        }
+                    )
                     continue
                 # Run the subprocess to download the clip to the specified path
                 result = download_single_video(user_id, clip_id, output_path)
                 results.append(result)
-        return {
-            "user_id": user_id,
-            "status": "completed",
-            "results": results
-        }
+        return {"user_id": user_id, "status": "completed", "results": results}
     except Exception as e:
-        return {
-            "user_id": user_id,
-            "status": "error",
-            "error": str(e)
-        }
+        return {"user_id": user_id, "status": "error", "error": str(e)}
+
 
 def download_all_videos_parallel(users_with_chats: list[str], max_workers: int = 4):
     """
     Download videos for all users in parallel using ThreadPoolExecutor
-    
+
     Args:
         users_with_chats: List of user IDs to process
         max_workers: Maximum number of threads to use (default: 4)
-    
+
     Returns:
         List of download results for each user
     """
     all_results = []
     total_users = len(users_with_chats)
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Create a dictionary mapping futures to user_ids
         future_to_user = {
-            executor.submit(download_user_videos, user_id): user_id 
+            executor.submit(download_user_videos, user_id): user_id
             for user_id in users_with_chats
         }
-        
+
         # Use tqdm for progress bar
         with tqdm(total=total_users, desc="Processing users") as pbar:
             for future in as_completed(future_to_user):
@@ -868,123 +749,78 @@ def download_all_videos_parallel(users_with_chats: list[str], max_workers: int =
                 try:
                     result = future.result()
                     all_results.append(result)
-                    
+
                     # Log the result
                     if result["status"] == "completed":
-                        success_count = sum(1 for r in result["results"] if r["status"] == "success")
+                        success_count = sum(
+                            1 for r in result["results"] if r["status"] == "success"
+                        )
                         total_count = len(result["results"])
-                        print(f"User {user_id}: Successfully downloaded {success_count}/{total_count} videos")
+                        print(
+                            f"User {user_id}: Successfully downloaded {success_count}/{total_count} videos"
+                        )
                     else:
-                        print(f"User {user_id}: Error - {result.get('error', 'Unknown error')}")
-                    
+                        print(
+                            f"User {user_id}: Error - {result.get('error', 'Unknown error')}"
+                        )
+
                 except Exception as e:
                     error_msg = f"Unhandled error processing user {user_id}: {str(e)}"
                     print(error_msg)
-                    all_results.append({
-                        "user_id": user_id,
-                        "status": "error",
-                        "error": str(e)
-                    })
+                    all_results.append(
+                        {"user_id": user_id, "status": "error", "error": str(e)}
+                    )
                     write_log(DOWNLOAD_MP4_LOG, error_msg)
-                
+
                 pbar.update(1)
 
-if __name__ == "__main__":
-    # twitch_metric = TwitchMetric()
-    # chat_downloader = ChatDownload()
-    # category = "Just Chatting"
-    # streamer_names = twitch_metric.get_top_streamers_by_cat(category)
-    # twitch_metric.quit()
-    # twitch = Twitch(started_at="2024-10-01T00:00:00Z", ended_at="2024-12-01T00:00:00Z")
-    # retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
-    # # Open the file in write mode
-    # with open(retrieve_data_record, "a") as file:
-    #     # Write some content to the file
-    #     file.write(f"retrieve_data_time: {datetime.now()}\n")
-    #     file.write(f"started_at: {twitch.started_at}\n")
-    #     file.write(f"ended_at: {twitch.ended_at}\n\n")
 
-    # user_index_start, user_index_end = 0, 100
-    # user_info_list = []
-    # user_info, missing_user = twitch.get_users_by_login_names(
-    #     streamer_names[user_index_start:user_index_end]
-    # )
-    # user_info_list.extend(user_info.get("data", []))
-    # while missing_user:
-    #     user_index_start = user_index_end
-    #     user_index_end += len(missing_user)
-    #     user_info, missing_user = twitch.get_users_by_login_names(
-    #         streamer_names[user_index_start:user_index_end]
-    #     )
-    #     user_info_list.extend(user_info.get("data", []))
-    # user_info_df = read_or_create_csv_file(USERS_INFO_FILE)
-    # if "twitch_user_id" not in user_info_df.columns:
-    #     user_info_df = create_users_info_file(user_info_list, USERS_INFO_FILE)
+if __name__ == "__main__":
+    chat_downloader = ChatDownload()
+    streamer_names = pd.read_csv("data/users.csv")["display_name"]
+    twitch = Twitch(started_at="2025-12-29T00:00:00Z", ended_at="2025-12-30T00:00:00Z")
+    retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
+    # # Open the file in write mode
+    with open(retrieve_data_record, "a") as file:
+        # Write some content to the file
+        file.write(f"retrieve_data_time: {datetime.now()}\n")
+        file.write(f"started_at: {twitch.started_at}\n")
+        file.write(f"ended_at: {twitch.ended_at}\n\n")
+
+    user_info_list = []
+    user_info = twitch.get_users_by_login_names(streamer_names)
+    user_info_list.extend(user_info.get("data", []))
+    user_info_df = read_or_create_csv_file(USERS_INFO_FILE)
+    if "twitch_user_id" not in user_info_df.columns:
+        user_info_df = create_users_info_file(user_info_list, USERS_INFO_FILE)
 
     # # User without clip record
-    # user_without_clip_file = f"{CLIP_DIRECTORY}/user_without_clip.csv"
-    # user_without_clip_df = read_or_create_csv_file(
-    #     user_without_clip_file, columns=["user_id"]
-    # ).astype(str)
+    user_without_clip_file = f"{CLIP_DIRECTORY}/user_without_clip.csv"
+    user_without_clip_df = read_or_create_csv_file(
+        user_without_clip_file, columns=["user_id"]
+    ).astype(str)
 
-    # for user_id in user_info_df["twitch_user_id"]:
-    #     user_id = str(user_id)
-    #     follower_count = twitch.get_user_follower_count(user_id)
-    #     user_info_df.loc[
-    #         user_info_df["twitch_user_id"] == user_id, "follower_count"
-    #     ] = follower_count
-    #     clip_summary_df = twitch.summary_user_clips_to_csv(user_id)
-    #     if not clip_summary_df.empty:
-    #         video_id_list = get_unique_values_from_df_column(
-    #             clip_summary_df, "video_id"
-    #         )
-    #         if not video_id_list:  # User's all clips without video record
-    #             user_all_clips_without_video_file = (
-    #                 f"{VIDEO_DIRECTORY}/{user_id}_all_clip_without_video.csv"
-    #             )
-    #             user_all_clips_without_video_file_df = read_or_create_csv_file(
-    #                 user_all_clips_without_video_file, ["clip_id"]
-    #             )
-    #             new_df = pd.DataFrame({"clip_id": clip_summary_df["clip_id"]})
-    #             concat_df_to_file(
-    #                 [user_all_clips_without_video_file_df, new_df],
-    #                 user_all_clips_without_video_file,
-    #                 subset=["clip_id"]
-    #             )
-    #         else:
-    #             video_data = twitch.get_videos_by_ids(video_id_list)
-    #             if video_data:
-    #                 user_videos_to_csv(video_data, user_id)
+    for user_id in user_info_df["twitch_user_id"][13:14]:
+        user_id = str(user_id)
+        follower_count = twitch.get_user_follower_count(user_id)
+        user_info_df.loc[
+            user_info_df["twitch_user_id"] == user_id, "follower_count"
+        ] = follower_count
+        clip_summary_df = twitch.summary_user_clips_to_csv(user_id)
+        if clip_summary_df.empty:
+            continue
 
-    #         clip_urls = dict(
-    #             zip(list(clip_summary_df["clip_id"]), list(clip_summary_df["url"]))
-    #         )
-    #         chat_downloader.download_and_save_chats_from_clips(
-    #             user_id, f"{CHAT_DIRECTORY}/{user_id}", clip_urls
-    #         )
-    #         # user_all_chats = export_single_user_chats_to_csv(user_id)
-    #         # chat_df_with_regex = re_message(
-    #         #     user_all_chats,
-    #         #     "message",
-    #         #     **{
-    #         #         "cheer_pattern": CHEER_PATTERN,
-    #         #         "subscribed_pattern": SUBSCRIBED_PATTERN,
-    #         #         "gifting_pattern": GIFTING_PATTERN,
-    #         #     },
-    #         # )
-    #         # regex_output_path = os.path.join(CHAT_WITH_RE_DIR, f"{user_id}.csv")
-    #         # chat_df_with_regex.to_csv(regex_output_path, index=False)
+        clip_urls = dict(
+            zip(list(clip_summary_df["clip_id"]), list(clip_summary_df["url"]))
+        )
+        chat_downloader.download_and_save_chats_from_clips(
+            user_id, f"{CHAT_DIRECTORY}/{user_id}", clip_urls
+        )
 
-    #     else:
-    #         new_user_without_clip_df = pd.DataFrame(data={"user_id": [user_id]})
-    #         concat_df_to_file(
-    #             [user_without_clip_df, new_user_without_clip_df], user_without_clip_file
-    #         )
-    #         continue
-    # user_info_df["follower_count"] = user_info_df["follower_count"].apply(
-    #     lambda x: int(x) if pd.notnull(x) else 0
-    # )
-    # user_info_df.to_csv(USERS_INFO_FILE, index=False)
+    user_info_df["follower_count"] = user_info_df["follower_count"].apply(
+        lambda x: int(x) if pd.notnull(x) else 0
+    )
+    user_info_df.to_csv(USERS_INFO_FILE, index=False)
     users_with_chats = get_items_in_dir(CHAT_DIRECTORY)
     download_all_videos_parallel(users_with_chats)
-    # process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)
+    process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)

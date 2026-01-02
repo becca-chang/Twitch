@@ -638,40 +638,43 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
     error_df_columns = ["user_id", "clip_id", "status", "output_path"]
     error_df = read_or_create_csv_file(file_path, error_df_columns)
     try:
-        result = subprocess.run(
-            [
-                "twitch-dl",
-                "download",
-                clip_id,
-                "--output",
-                output_path,
-                "--quality",
-                "source",
-            ],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            result_dict = {
-                "user_id": user_id,
-                "clip_id": clip_id,
-                "status": "success",
-                "output_path": output_path,
-            }
-            return result_dict
-        else:
-            result_dict = {
-                "user_id": user_id,
-                "clip_id": clip_id,
-                "status": "error",
-                "error": result.stderr,
-                "output_path": output_path,
-            }
-            concat_df_to_file(
-                [error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"]
+        for quality in ["360", "480", "720", "source"]:
+            result = subprocess.run(
+                [
+                    "twitch-dl",
+                    "download",
+                    clip_id,
+                    "--output",
+                    output_path,
+                    "--quality",
+                    quality,
+                ],
+                capture_output=True,
+                text=True,
             )
-            return result_dict
+
+            if result.returncode == 0:
+                result_dict = {
+                    "user_id": user_id,
+                    "clip_id": clip_id,
+                    "status": "success",
+                    "output_path": output_path,
+                }
+                return result_dict
+            else:
+                result_dict = {
+                    "user_id": user_id,
+                    "clip_id": clip_id,
+                    "status": "error",
+                    "error": result.stderr,
+                    "output_path": output_path,
+                }
+                concat_df_to_file(
+                    [error_df, pd.DataFrame([result_dict])],
+                    file_path,
+                    subset=["clip_id"],
+                )
+                return result_dict
     except Exception as e:
         result_dict = {
             "user_id": user_id,

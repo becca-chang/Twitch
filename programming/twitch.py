@@ -26,7 +26,6 @@ CHAT_DIRECTORY = f"{DATA_ROOT}/comments"
 VIDEO_DIRECTORY = f"{DATA_ROOT}/videos"
 MP4_DIRECTORY = f"{DATA_ROOT}/mp4"
 CHAT_CSV_DIRECTORY = f"{DATA_ROOT}/comments_csv"
-CHAT_WITH_RE_DIR = os.path.join(CHAT_CSV_DIRECTORY, "chat_with_re")
 
 USERS_INFO_FILE = f"{DATA_ROOT}/users_info.csv"
 
@@ -560,38 +559,6 @@ def get_user_clips_without_chats(
     lost_chat_df.to_csv(
         f"{chat_directory}/{user_id}_clips_without_chat_double_check.csv", index=False
     )
-
-
-def create_report(messaged_re_dir):
-    user_reports_list = []
-    for file in os.listdir(messaged_re_dir):
-        user_id = file.split(".")[0]
-        if user_id.isdigit():
-            full_file_path = os.path.join(messaged_re_dir, file)
-            df = pd.read_csv(full_file_path, index_col=0)
-
-            message_count = df["message_id"].count()
-            distinct_clip_count = df["clip_id"].nunique()
-            subscribed_count = df[df["comment_type"] == 1]["tier_level"].count()
-            gifting_count = df[df["comment_type"] == 2]["gifting_count"].count()
-            gifting_amount = int(df[df["comment_type"] == 2]["gifting_count"].sum())
-            cheer_count = df[df["comment_type"] == 3]["message"].count()
-            cheer_amount = int(df[df["comment_type"] == 3]["cheer"].sum())
-            user_report = {
-                "user_id": user_id,
-                "message_count": message_count,
-                "distinct_clip_count": distinct_clip_count,
-                "subscribed_count": subscribed_count,
-                "gifting_count": gifting_count,
-                "gifting_amount": gifting_amount,
-                "cheer_count": cheer_count,
-                "cheer_amount": cheer_amount,
-            }
-            user_reports_list.append(user_report)
-    report_df = pd.DataFrame(data=user_reports_list)
-    report_df.to_csv("data/reports.csv")
-
-    # create_report(CHAT_WITH_RE_DIR)
 
 
 def process_all_users_parallel(

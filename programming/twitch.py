@@ -17,7 +17,7 @@ from utils.utils import *
 from utils.process_file import read_or_create_csv_file, read_json_file
 
 CLIENT_ID = "olj1zlf45mtffa1166zd8b1ersrew3"
-AUTHORIZATION = "Bearer wm5mm5vlualx8xbpa6qumsne0crb33"
+AUTHORIZATION = "Bearer "
 TWITCH_HEADERS = {"Client-Id": CLIENT_ID, "Authorization": AUTHORIZATION}
 
 DATA_ROOT = "data"
@@ -107,7 +107,7 @@ class Twitch:
                 write_log(FETCH_CLIPS_LOG, f"Error fetching clips: {e}")
                 return {"data": [], "pagination": {}}
 
-        with ThreadPoolExecutor(max_workers=200) as executor:
+        with ThreadPoolExecutor(max_workers=30) as executor:
             while True:
                 # Prepare payload
                 payload = {
@@ -143,6 +143,9 @@ class Twitch:
         if data:
             clip_summary = pd.DataFrame(data=data)
             clip_summary.rename(columns={"id": "clip_id"}, inplace=True)
+
+            clip_summary = clip_summary[clip_summary["game_id"] == "21779"]
+
             concat_df_to_file(
                 [summary_clips, clip_summary], file_path, subset=["clip_id"]
             )
@@ -683,6 +686,7 @@ def download_single_video(user_id: str, clip_id: str, output_path: str):
             "error": str(e),
             "output_path": output_path,
         }
+
         concat_df_to_file(
             [error_df, pd.DataFrame([result_dict])], file_path, subset=["clip_id"]
         )
@@ -781,7 +785,7 @@ def download_all_videos_parallel(users_with_chats: list[str], max_workers: int =
 if __name__ == "__main__":
     chat_downloader = ChatDownload()
     streamer_names = pd.read_csv("data/users.csv")["display_name"]
-    twitch = Twitch(started_at="2025-12-29T00:00:00Z", ended_at="2025-12-30T00:00:00Z")
+    twitch = Twitch(started_at="2025-05-01T00:00:00Z", ended_at="2025-07-01T00:00:00Z")
     retrieve_data_record = f"data/retrieve_{datetime.today().strftime('%Y-%m-%d')}.txt"
     # # Open the file in write mode
     with open(retrieve_data_record, "a") as file:
@@ -803,7 +807,7 @@ if __name__ == "__main__":
         user_without_clip_file, columns=["user_id"]
     ).astype(str)
 
-    for user_id in user_info_df["twitch_user_id"][13:14]:
+    for user_id in user_info_df["twitch_user_id"]:
         user_id = str(user_id)
         follower_count = twitch.get_user_follower_count(user_id)
         user_info_df.loc[
@@ -826,4 +830,4 @@ if __name__ == "__main__":
     user_info_df.to_csv(USERS_INFO_FILE, index=False)
     users_with_chats = get_items_in_dir(CHAT_DIRECTORY)
     download_all_videos_parallel(users_with_chats)
-    process_all_users_parallel(users_with_chats=users_with_chats, max_workers=20)
+    process_all_users_parallel(users_with_chats=users_with_chats, max_workers=10)
